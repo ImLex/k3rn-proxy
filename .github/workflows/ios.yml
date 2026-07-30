@@ -50,6 +50,7 @@ jobs:
             -scheme "$SCHEME" \
             -destination 'generic/platform=iOS' \
             -archivePath build/K3RNIntel.xcarchive \
+            SWIFT_OPTIMIZATION_LEVEL=-Onone SWIFT_COMPILATION_MODE=singlefile \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
 
       - name: Package unsigned .ipa
