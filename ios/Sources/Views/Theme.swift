@@ -1,18 +1,40 @@
 import SwiftUI
 
-/// Dark-only palette matching the web dashboard (guide §8): near-black green
-/// tint background (#101512), green accent, amber Leader / blue Officer.
+/// Design tokens mirrored from the Android companion app (`src/ui/theme.ts`).
+/// Nothing else should hard-code a colour. Dark-only.
 enum Theme {
-    static let background = Color(red: 0.063, green: 0.082, blue: 0.071)   // #101512
-    static let surface = Color(red: 0.098, green: 0.125, blue: 0.110)      // slightly lighter card
-    static let surfaceHigh = Color(red: 0.137, green: 0.169, blue: 0.149)
-    static let accent = Color(red: 0.290, green: 0.902, blue: 0.545)       // AccentColor
-    static let textPrimary = Color(red: 0.90, green: 0.94, blue: 0.91)
-    static let textSecondary = Color(red: 0.62, green: 0.68, blue: 0.64)
-    static let border = Color.white.opacity(0.08)
+    // MARK: Backgrounds, back to front
+    static let background = hex(0x0E1116)
+    static let surface = hex(0x161B22)
+    static let surfaceRaised = hex(0x1C232C)
+    static let surfaceHigh = hex(0x232B36)
+    static let border = hex(0x2A333F)
+    static let borderStrong = hex(0x3A4553)
 
-    static let leader = Color(red: 0.98, green: 0.75, blue: 0.24)   // amber/gold
-    static let officer = Color(red: 0.45, green: 0.72, blue: 0.98)  // light blue
+    // MARK: Text
+    static let textPrimary = hex(0xE8EDF4)
+    static let textSecondary = hex(0x9BA7B7)   // Android textMuted
+    static let textFaint = hex(0x6B7889)
+    static let textInverse = hex(0x0E1116)
+
+    // MARK: Accent (single interactive colour)
+    static let accent = hex(0x3ED2D0)
+    static let accentMuted = hex(0x1F5C5E)
+    static let accentText = hex(0x0E1116)
+
+    // MARK: Semantic
+    static let success = hex(0x42C08A)
+    static let warning = hex(0xF5B841)
+    static let danger = hex(0xE5484D)
+    static let info = hex(0x4FA3E3)
+    static let purple = hex(0xC77DFF)
+    static let orange = hex(0xFF7A45)
+    static let pink = hex(0xFF5C8A)
+    static let crypto = hex(0xF5B841)
+
+    // MARK: Crew ranks (kept for existing screens)
+    static let leader = warning     // gold
+    static let officer = info       // blue
 
     static func rankColor(_ rank: CrewRank) -> Color {
         switch rank {
@@ -29,30 +51,65 @@ enum Theme {
         case .member: return nil
         }
     }
-}
 
-extension View {
-    /// Standard card container used across screens.
-    func cardStyle() -> some View {
-        self
-            .padding(14)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Theme.border, lineWidth: 1)
-            )
+    static func hex(_ value: UInt32, alpha: Double = 1) -> Color {
+        Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255,
+            opacity: alpha
+        )
     }
 }
 
+/// Spacing scale (Android `spacing`).
+enum Space {
+    static let xs: CGFloat = 4
+    static let sm: CGFloat = 8
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 24
+    static let xxl: CGFloat = 32
+}
+
+/// Corner-radius scale (Android `radius`).
+enum Radius {
+    static let sm: CGFloat = 8
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 24
+    static let pill: CGFloat = 999
+}
+
 extension Font {
-    /// Monospaced treatment for IPs and numbers (guide §8).
-    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    // Type scale mirrored from Android `typography`.
+    static let display = Font.system(size: 32, weight: .bold)
+    static let titleXL = Font.system(size: 22, weight: .bold)
+    static let heading = Font.system(size: 17, weight: .semibold)
+    static let bodyM = Font.system(size: 15, weight: .regular)
+    static let bodyStrong = Font.system(size: 15, weight: .semibold)
+    static let labelM = Font.system(size: 13, weight: .medium)
+    static let caption = Font.system(size: 12, weight: .regular)
+
+    /// Monospaced treatment for IPs and numbers.
+    static func mono(_ size: CGFloat = 13, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
 }
 
 extension View {
+    /// Standard 16px bordered card on `surface` (Android `Card`).
+    func cardStyle(padding: CGFloat = Space.lg) -> some View {
+        self
+            .padding(padding)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                    .stroke(Theme.border, lineWidth: 1)
+            )
+    }
+
     /// Hide a List/ScrollView's system background so Theme.background shows.
     /// iOS 16+ uses the native modifier; on iOS 15 the clear List background is
     /// set globally via UITableView.appearance() in the app entry point.
