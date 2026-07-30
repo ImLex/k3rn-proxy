@@ -7,7 +7,7 @@ struct TrackerView: View {
     @EnvironmentObject private var store: TrackerStore
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             Group {
                 if store.players.isEmpty {
                     ScrollView {
@@ -34,7 +34,7 @@ struct TrackerView: View {
                         }
                     }
                     .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
+                    .hideScrollBackground()
                     .refreshable { await store.refresh() }
                 }
             }

@@ -51,3 +51,16 @@ extension Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
 }
+
+extension View {
+    /// Hide a List/ScrollView's system background so Theme.background shows.
+    /// iOS 16+ uses the native modifier; on iOS 15 the clear List background is
+    /// set globally via UITableView.appearance() in the app entry point.
+    @ViewBuilder func hideScrollBackground() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollContentBackground(.hidden)
+        } else {
+            self
+        }
+    }
+}

@@ -1,11 +1,22 @@
 import SwiftUI
 import Supabase
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @main
 struct K3RNIntelApp: App {
     @StateObject private var session = SessionManager()
     @StateObject private var nicknames = NicknameStore()
     @StateObject private var tracker = TrackerStore()
+
+    init() {
+        // iOS 15 has no .scrollContentBackground(.hidden); clear the List/table
+        // background globally so Theme.background shows through (see hideScrollBackground()).
+        #if canImport(UIKit)
+        UITableView.appearance().backgroundColor = .clear
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {

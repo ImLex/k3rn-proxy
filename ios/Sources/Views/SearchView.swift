@@ -98,7 +98,7 @@ struct SearchView: View {
     @State private var showAdd = false
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     if let msg = model.errorMessage { ErrorBanner(message: msg) }
@@ -175,7 +175,7 @@ struct FilterSheet: View {
     @State private var playerIDMode = 0   // 0 any, 1 has, 2 missing
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             Form {
                 Section("Crew") {
                     TextField("Crew tag contains", text: $crew)
@@ -194,7 +194,7 @@ struct FilterSheet: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
+            .hideScrollBackground()
             .background(Theme.background)
             .navigationTitle("Filters")
             .toolbar {

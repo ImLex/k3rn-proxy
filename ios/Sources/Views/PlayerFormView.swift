@@ -25,7 +25,7 @@ struct PlayerFormView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             Form {
                 if let msg = errorMessage {
                     Section { ErrorBanner(message: msg) }
@@ -65,7 +65,7 @@ struct PlayerFormView: View {
                     if let e = errors.notes { fieldError(e) }
                 }
             }
-            .scrollContentBackground(.hidden)
+            .hideScrollBackground()
             .background(Theme.background)
             .navigationTitle(isEdit ? "Edit Player" : "Add Player")
             .navigationBarTitleDisplayMode(.inline)

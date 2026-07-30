@@ -51,7 +51,7 @@ struct CrewsView: View {
     @State private var reordering = false
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 16) {
                     if let msg = model.errorMessage { ErrorBanner(message: msg) }

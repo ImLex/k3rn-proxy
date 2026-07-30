@@ -44,7 +44,7 @@ struct ActivityView: View {
     @State private var showFilters = false
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     if let msg = model.errorMessage { ErrorBanner(message: msg) }
@@ -167,7 +167,7 @@ struct ActivityFilterSheet: View {
     @State private var to = Date()
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             Form {
                 Section("Action") {
                     Picker("Action", selection: $action) {
@@ -188,7 +188,7 @@ struct ActivityFilterSheet: View {
                     if useTo { DatePicker("To", selection: $to, displayedComponents: .date).labelsHidden() }
                 }
             }
-            .scrollContentBackground(.hidden)
+            .hideScrollBackground()
             .background(Theme.background)
             .navigationTitle("Filters")
             .toolbar {

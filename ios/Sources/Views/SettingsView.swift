@@ -9,7 +9,7 @@ struct SettingsView: View {
     private var isAdmin: Bool { actor.role == .admin }
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 18) {
                     accountCard

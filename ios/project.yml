@@ -2,7 +2,7 @@ name: K3RNIntel
 options:
   bundleIdPrefix: site.k3rn
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "15.0"
   createIntermediateGroups: true
 
 packages:

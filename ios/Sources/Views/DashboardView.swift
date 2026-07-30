@@ -12,7 +12,7 @@ struct DashboardView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 18) {
                     if let errorMessage { ErrorBanner(message: errorMessage) }
