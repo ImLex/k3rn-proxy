@@ -10,6 +10,7 @@ struct DashboardView: View {
     @State private var recent: [Player] = []
     @State private var loading = true
     @State private var errorMessage: String?
+    @State private var showActivity = false
 
     var body: some View {
         NavigationView {
@@ -37,12 +38,18 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .refreshable { await load() }
             .task { if loading { await load() } }
+            .sheet(isPresented: $showActivity) { ActivityView() }
         }
     }
 
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: "Recent Activity")
+            HStack {
+                SectionHeader(title: "Recent Activity")
+                Button { showActivity = true } label: {
+                    Text("See all").font(.labelM).foregroundColor(Theme.accent)
+                }
+            }
             if activity.isEmpty {
                 EmptyState(systemImage: "clock", title: "No activity yet")
             } else {

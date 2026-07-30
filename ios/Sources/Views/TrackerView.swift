@@ -39,7 +39,7 @@ struct TrackerView: View {
                 }
             }
             .background(Theme.background)
-            .navigationTitle("Tracker")
+            .navigationTitle("Targets")
         }
         .task { await store.refresh() }
     }

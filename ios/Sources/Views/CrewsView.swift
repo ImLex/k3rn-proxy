@@ -74,7 +74,7 @@ struct CrewsView: View {
                 .padding()
             }
             .background(Theme.background)
-            .navigationTitle("Crews")
+            .navigationTitle("K3RN")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(reordering ? "Done" : "Reorder") { reordering.toggle() }
