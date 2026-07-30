@@ -40,8 +40,8 @@ struct PlayerDetailView: View {
         .navigationTitle(player?.username ?? "Player")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if player != nil && !isDeleted {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if player != nil && !isDeleted {
                     Button("Edit") { showEdit = true }
                 }
             }
