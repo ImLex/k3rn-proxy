@@ -8,7 +8,9 @@ options:
 packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
-    from: "2.5.1"
+    # 2.49.0 is the last release supporting iOS 13/15; 2.50.0+ require iOS 16,
+    # which would break installs on the target iOS 15.8 device.
+    exactVersion: "2.49.0"
 
 configFiles:
   Debug: Config/Secrets.xcconfig
