@@ -41,7 +41,7 @@ struct PlayerDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if player != nil && !isDeleted {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Edit") { showEdit = true }
                 }
             }

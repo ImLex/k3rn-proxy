@@ -60,8 +60,8 @@ struct PlayerFormView: View {
                 }
 
                 Section("Notes") {
-                    TextField("Notes", text: $draft.notes, axis: .vertical)
-                        .lineLimit(3...6)
+                    TextEditor(text: $draft.notes)
+                        .frame(minHeight: 72, maxHeight: 140)
                     if let e = errors.notes { fieldError(e) }
                 }
             }

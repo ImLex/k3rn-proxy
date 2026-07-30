@@ -142,12 +142,12 @@ struct SearchView: View {
             .searchable(text: $model.query, prompt: "Username, IP, crew, notes…")
             .onChange(of: model.query) { _ in model.onQueryChange() }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button { showFilters = true } label: {
                         Image(systemName: "line.3.horizontal.decrease.circle")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showAdd = true } label: { Image(systemName: "plus") }
                 }
             }

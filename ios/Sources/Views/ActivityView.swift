@@ -67,7 +67,7 @@ struct ActivityView: View {
             .background(Theme.background)
             .navigationTitle("Activity")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button { showFilters = true } label: {
                         Image(systemName: "line.3.horizontal.decrease.circle")
                     }
