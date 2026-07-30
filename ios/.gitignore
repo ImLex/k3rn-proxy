@@ -1,0 +1,19 @@
+# Secrets (anon key + Discord IDs live here; provided via CI or local copy)
+Config/Secrets.xcconfig
+
+# XcodeGen output (regenerated from project.yml)
+*.xcodeproj/
+*.xcworkspace/
+
+# Xcode / SPM
+.build/
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+
+# CI build artifacts
+*.ipa
+*.xcarchive
+ExportOptions.generated.plist

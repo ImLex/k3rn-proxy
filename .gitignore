@@ -1,0 +1,22 @@
+# --- Secrets / server config (never commit) ---
+_k3rn-capture.env
+k3rn_capture_map.json
+*.pem
+*.key
+
+# --- Local tooling ---
+.claude/
+__pycache__/
+*.pyc
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- iOS build output (also covered by ios/.gitignore) ---
+ios/Config/Secrets.xcconfig
+ios/*.xcodeproj/
+ios/build/
+ios/DerivedData/
+*.ipa
+*.xcarchive

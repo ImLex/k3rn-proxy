@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>K3RN Intel</string>
+  <key>CFBundleExecutable</key>
+  <string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundleIdentifier</key>
+  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleName</key>
+  <string>$(PRODUCT_NAME)</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$(MARKETING_VERSION)</string>
+  <key>CFBundleVersion</key>
+  <string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>LSRequiresIPhoneOS</key>
+  <true/>
+  <key>UIApplicationSceneManifest</key>
+  <dict>
+    <key>UIApplicationSupportsMultipleScenes</key>
+    <false/>
+  </dict>
+  <key>UILaunchScreen</key>
+  <dict/>
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+  </array>
+  <key>UIUserInterfaceStyle</key>
+  <string>Dark</string>
+
+  <!-- OAuth redirect: k3rnintel://auth-callback (add to Supabase Auth Redirect URLs) -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>k3rnintel</string>
+      </array>
+    </dict>
+  </array>
+
+  <!-- Injected from Config/Secrets.xcconfig (see Secrets.example.xcconfig). -->
+  <key>SUPABASE_HOST</key>
+  <string>$(SUPABASE_HOST)</string>
+  <key>SUPABASE_ANON_KEY</key>
+  <string>$(SUPABASE_ANON_KEY)</string>
+  <key>DISCORD_GUILD_ID</key>
+  <string>$(DISCORD_GUILD_ID)</string>
+  <key>DISCORD_OFFICER_ROLE_ID</key>
+  <string>$(DISCORD_OFFICER_ROLE_ID)</string>
+  <key>DISCORD_K3RN_ROLE_ID</key>
+  <string>$(DISCORD_K3RN_ROLE_ID)</string>
+</dict>
+</plist>
