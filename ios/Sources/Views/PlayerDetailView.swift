@@ -93,24 +93,33 @@ struct PlayerDetailView: View {
             DetailRow(label: "Level") { valueText(p.level) }
             DetailRow(label: "Firewall") { valueText(p.firewall) }
             DetailRow(label: "Reputation") { valueText(p.reputation) }
-            if let notes = p.notes, !notes.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Notes").font(.system(size: 14)).foregroundStyle(Theme.textSecondary)
-                    Text(notes).font(.system(size: 15)).foregroundStyle(Theme.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.top, 6)
-            }
-            DetailRow(label: "Updated") {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(Formatting.absoluteTime(p.updatedAt))
-                        .font(.system(size: 13)).foregroundStyle(Theme.textPrimary)
-                    Text("by \(nicknames.nickname(forDiscordID: p.updatedBy, fallback: p.updatedBy))")
-                        .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
-                }
-            }
+            notesBlock(p)
+            updatedBlock(p)
         }
         .cardStyle()
+    }
+
+    @ViewBuilder
+    private func notesBlock(_ p: Player) -> some View {
+        if let notes = p.notes, !notes.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Notes").font(.system(size: 14)).foregroundStyle(Theme.textSecondary)
+                Text(notes).font(.system(size: 15)).foregroundStyle(Theme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, 6)
+        }
+    }
+
+    private func updatedBlock(_ p: Player) -> some View {
+        DetailRow(label: "Updated") {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(Formatting.absoluteTime(p.updatedAt))
+                    .font(.system(size: 13)).foregroundStyle(Theme.textPrimary)
+                Text("by \(nicknames.nickname(forDiscordID: p.updatedBy, fallback: p.updatedBy))")
+                    .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+            }
+        }
     }
 
     private var ipHistorySection: some View {
