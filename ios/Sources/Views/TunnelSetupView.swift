@@ -30,7 +30,7 @@ struct TunnelSetupView: View {
                 case .failed(let msg):
                     ErrorBanner(message: msg)
                     Button("Try again") { Task { await load() } }
-                        .fontWeight(.semibold).foregroundStyle(Theme.accent)
+                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
                 }
             }
             .padding()
