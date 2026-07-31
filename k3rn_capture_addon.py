@@ -50,6 +50,7 @@ import logging
 import os
 import queue
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -100,6 +101,9 @@ SW_CATEGORY = {
 SW_SKIP_TYPE_IDS = {1}
 
 QUEUE_MAX = 50_000
+# How often to re-read the wg_peers registry so self-onboarded crew mates start
+# being captured without a proxy restart.
+WG_MAP_REFRESH = int(os.environ.get("WG_MAP_REFRESH", "30"))
 
 
 # --------------------------------------------------------------------------- #
@@ -144,6 +148,20 @@ class Supabase:
         with urllib.request.urlopen(req, timeout=10) as resp:
             txt = resp.read().decode()
             return json.loads(txt) if txt else None
+
+    def list_wg_peers(self):
+        """Active registry rows -> {wg_ip: (discord_id, discord_id)}. Replaces the
+        hand-edited K3RN_WG_MAP file: crew mates self-onboard via provision-peer."""
+        rows = self._req(
+            "GET", "wg_peers?select=wg_ip,discord_id&revoked_at=is.null"
+        )
+        out = {}
+        for r in rows or []:
+            ip = str(r.get("wg_ip") or "").split("/", 1)[0].strip()
+            disc = r.get("discord_id")
+            if ip and disc:
+                out[ip] = (str(disc), str(disc))
+        return out
 
     def get_profile_user_id(self, discord_id: str):
         rows = self._req(
@@ -373,13 +391,36 @@ class K3rnCapture:
             )
             return
         if self._worker is None:
+            # The registry is the source of truth; the file map (if any) is only a
+            # fallback if the first DB read fails.
+            try:
+                peers = self.db.list_wg_peers()
+                if peers:
+                    self.wg_map = peers
+            except Exception as exc:  # noqa: BLE001 - fall back to file map
+                logger.warning("initial wg_peers load failed, using file map: %s", exc)
             self._worker = threading.Thread(
                 target=self._drain, name="k3rn-capture", daemon=True
             )
             self._worker.start()
+            threading.Thread(
+                target=self._refresh_wg_map, name="k3rn-wgmap", daemon=True
+            ).start()
             logger.info(
                 "K3RN capture inbox writer started (%d WG peers mapped)", len(self.wg_map)
             )
+
+    def _refresh_wg_map(self):
+        """Periodically re-read wg_peers so a newly self-provisioned crew mate is
+        captured without a restart. A failed read keeps the last good map."""
+        while True:
+            time.sleep(WG_MAP_REFRESH)
+            try:
+                peers = self.db.list_wg_peers()
+                if peers:
+                    self.wg_map = peers
+            except Exception as exc:  # noqa: BLE001 - keep the last good map
+                logger.warning("wg_peers refresh failed: %s", exc)
 
     def response(self, flow):
         if not self.enabled or flow.request.pretty_host != GAME_HOST:

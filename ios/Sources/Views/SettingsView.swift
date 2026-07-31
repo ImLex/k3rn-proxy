@@ -21,6 +21,18 @@ struct SettingsView: View {
                 VStack(spacing: 18) {
                     accountCard
                     gameAccountCard
+                    NavigationLink {
+                        TunnelSetupView()
+                    } label: {
+                        HStack {
+                            Label("Connect device (VPN)", systemImage: "network.badge.shield.half.filled")
+                                .foregroundStyle(Theme.textPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(Theme.textSecondary)
+                        }
+                        .cardStyle()
+                    }
+                    .buttonStyle(.plain)
                     levelCard
                     if isAdmin {
                         NavigationLink {
