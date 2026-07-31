@@ -220,12 +220,12 @@ class Supabase:
         self._req("POST", "target_crypto_events", body=body)
 
     def upsert_own_profile(self, body: dict):
-        """One row per member (owner_user_id PK). merge-duplicates so the profile
-        handler and the wallet handler can each write their own columns without
-        clobbering the other's (crypto vs identity/software)."""
+        """One row per (member, game account) — see 0011. merge-duplicates so the
+        profile handler and the wallet handler can each write their own columns
+        without clobbering the other's (crypto vs identity/software)."""
         self._req(
             "POST",
-            "own_profile?on_conflict=owner_user_id",
+            "own_profile?on_conflict=owner_user_id,player_id",
             body=body,
             prefer="resolution=merge-duplicates",
         )
@@ -360,6 +360,10 @@ class K3rnCapture:
         self._q: "queue.Queue[dict]" = queue.Queue(QUEUE_MAX)
         self._worker: threading.Thread | None = None
         self._uid_cache: dict[str, str] = {}  # discord_id -> profiles.user_id
+        # owner_user_id -> the own game account (player_id) last seen logged in,
+        # so the wallet handler (which carries no player_id) can target the right
+        # own_profile row when a member has several HackEx accounts.
+        self._own_pid: dict[str, str] = {}
 
     # -- mitmproxy lifecycle ------------------------------------------------ #
     def running(self):
@@ -714,6 +718,12 @@ class K3rnCapture:
         if not parsed:
             return
 
+        if not parsed["player_id"]:
+            logger.info("own profile has no player_id — skipped")
+            return
+        # Remember which account is active so the wallet handler can target it.
+        self._own_pid[owner_user_id] = parsed["player_id"]
+
         software, fw_from_sw = self._software_list(data.get("user_software", []))
         body = {
             "owner_user_id": owner_user_id,
@@ -738,9 +748,18 @@ class K3rnCapture:
         wallet = job["data"].get("user_wallet")
         if not isinstance(wallet, dict):
             return
+        # own_profile is keyed on (owner_user_id, player_id); the wallet payload
+        # carries no id, so route it to the account last seen via /v1/user. If we
+        # haven't seen a profile yet this session, defer — the next wallet refresh
+        # (after a profile open) will land it.
+        player_id = self._own_pid.get(owner_user_id)
+        if not player_id:
+            logger.info("own wallet before profile — crypto deferred")
+            return
         self.db.upsert_own_profile({
             "owner_user_id": owner_user_id,
             "owner_discord_id": actor_id,
+            "player_id": player_id,
             "crypto_hot": _num(wallet.get("hot")),
             "crypto_cold": _num(wallet.get("cold")),
             "crypto_updated_at": _now_iso(),

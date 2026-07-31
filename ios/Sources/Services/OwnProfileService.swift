@@ -6,16 +6,15 @@ import Supabase
 enum OwnProfileService {
     private static var client: SupabaseClient { SupabaseManager.client }
 
-    /// The member's own profile, or nil if the proxy hasn't captured it yet
-    /// (they haven't opened their own account in-game with the VPN on).
-    static func fetchMine() async throws -> OwnProfile? {
+    /// Every game account the proxy has captured for this member, newest-first.
+    /// A member with several HackEx logins gets one row per account (see 0011).
+    static func fetchAll() async throws -> [OwnProfile] {
         do {
-            let rows: [OwnProfile] = try await client.from("own_profile")
+            return try await client.from("own_profile")
                 .select()
-                .limit(1)
+                .order("captured_at", ascending: false)
                 .execute()
                 .value
-            return rows.first
         } catch { throw AppError.map(error) }
     }
 }

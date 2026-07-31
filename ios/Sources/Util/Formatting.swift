@@ -59,6 +59,12 @@ enum Formatting {
         return relative.localizedString(for: d, relativeTo: Date())
     }
 
+    /// Compact relative time from a parsed `Date` ("3h ago"). "—" for nil.
+    static func relativeTime(from date: Date?) -> String {
+        guard let date else { return "—" }
+        return relative.localizedString(for: date, relativeTo: Date())
+    }
+
     /// Full local date+time for detail screens. Falls back to "—".
     static func absoluteTime(_ raw: String?) -> String {
         guard let d = date(from: raw) else { return "—" }

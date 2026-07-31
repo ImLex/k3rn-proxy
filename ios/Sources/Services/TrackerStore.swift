@@ -8,6 +8,9 @@ final class TrackerStore: ObservableObject {
     @Published private(set) var players: [TrackedPlayer] = []
     /// Theft history per target, keyed on `player_id`. Feeds the scoring engine.
     @Published private(set) var eventsByPlayer: [String: [CryptoEvent]] = [:]
+    /// The member's own captured game accounts, newest-first. A member with
+    /// several HackEx logins has one entry per account (see migration 0011).
+    @Published private(set) var ownAccounts: [OwnProfile] = []
     @Published var lastError: String?
     @Published private(set) var loading = false
 
@@ -26,9 +29,10 @@ final class TrackerStore: ObservableObject {
     func refresh() async {
         loading = true
         defer { loading = false }
+        async let captures = CaptureService.fetchMine()
+        async let events = CryptoEventService.fetchMineByPlayer()
+        async let own = OwnProfileService.fetchAll()
         do {
-            async let captures = CaptureService.fetchMine()
-            async let events = CryptoEventService.fetchMineByPlayer()
             merge(try await captures)
             eventsByPlayer = try await events
             saveEvents()
@@ -36,6 +40,9 @@ final class TrackerStore: ObservableObject {
         } catch {
             lastError = AppError.map(error).errorDescription
         }
+        // Own-account list is best-effort — a failure here shouldn't surface as a
+        // tracker error or wipe a previously-loaded list.
+        if let accounts = try? await own { ownAccounts = accounts }
     }
 
     func player(id: String) -> TrackedPlayer? { players.first { $0.id == id } }
