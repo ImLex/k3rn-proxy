@@ -1,10 +1,19 @@
 import SwiftUI
 
 /// Personal tracker: the targets this member has opened in-game, synced from
-/// their private capture inbox and cached on device.
+/// their private capture inbox + theft history, scored by the potential engine,
+/// and ranked highest-value first.
 struct TrackerView: View {
     let actor: Actor
     @EnvironmentObject private var store: TrackerStore
+    @AppStorage("user_level") private var userLevel = 0
+
+    /// Players paired with their live assessment, ranked by score descending.
+    private var ranked: [(player: TrackedPlayer, assessment: TargetAssessment)] {
+        store.players
+            .map { ($0, store.assessment(for: $0, userLevel: userLevel)) }
+            .sorted { $0.1.score > $1.1.score }
+    }
 
     var body: some View {
         NavigationView {
@@ -26,10 +35,10 @@ struct TrackerView: View {
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
                         }
-                        ForEach(store.players) { p in
+                        ForEach(ranked, id: \.player.id) { item in
                             NavigationLink {
-                                TrackedPlayerDetailView(trackedID: p.id, actor: actor)
-                            } label: { row(p) }
+                                TrackedPlayerDetailView(trackedID: item.player.id, actor: actor)
+                            } label: { row(item.player, item.assessment) }
                             .listRowBackground(Theme.surface)
                         }
                     }
@@ -44,32 +53,43 @@ struct TrackerView: View {
         .task { await store.refresh() }
     }
 
-    private func row(_ p: TrackedPlayer) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(p.username)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                HStack(spacing: 8) {
-                    if let c = p.crew, !c.isEmpty {
-                        Text(c).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
-                    }
+    private func row(_ p: TrackedPlayer, _ a: TargetAssessment) -> some View {
+        HStack(spacing: Space.md) {
+            ScoreBadge(score: a.score, band: a.band)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: Space.sm) {
+                    Text(p.username)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
                     if let lvl = p.level {
                         Text("Lv \(lvl)").font(.mono(12)).foregroundStyle(Theme.textSecondary)
                     }
-                    if !p.software.isEmpty {
-                        Text("\(p.software.count) sw")
-                            .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                    if p.isUploaded {
+                        Image(systemName: "checkmark.icloud")
+                            .font(.system(size: 11)).foregroundStyle(Theme.accent)
+                    }
+                }
+                HStack(spacing: Space.xs) {
+                    TagPill(label: a.activity.label, color: ScoreStyle.activityColor(a.activity))
+                    TagPill(label: a.recommendation.label,
+                            color: ScoreStyle.recommendationColor(a.recommendation))
+                    if a.trend.direction != .unknown {
+                        Image(systemName: ScoreStyle.trendIcon(a.trend.direction))
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(ScoreStyle.trendColor(a.trend.direction))
                     }
                 }
             }
-            Spacer()
-            if p.isUploaded {
-                Image(systemName: "checkmark.icloud")
-                    .font(.system(size: 13)).foregroundStyle(Theme.accent)
+
+            Spacer(minLength: 4)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(CryptoFormat.compact(p.cryptoHot))
+                    .font(.mono(15, weight: .semibold)).foregroundStyle(Theme.crypto)
+                Text("held").font(.system(size: 10)).foregroundStyle(Theme.textFaint)
             }
-            Text(Formatting.relativeTime(p.capturedAt))
-                .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
         }
         .padding(.vertical, 4)
     }

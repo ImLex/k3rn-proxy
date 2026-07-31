@@ -6,16 +6,20 @@ import Foundation
 @MainActor
 final class TrackerStore: ObservableObject {
     @Published private(set) var players: [TrackedPlayer] = []
+    /// Theft history per target, keyed on `player_id`. Feeds the scoring engine.
+    @Published private(set) var eventsByPlayer: [String: [CryptoEvent]] = [:]
     @Published var lastError: String?
     @Published private(set) var loading = false
 
     private let fileURL: URL
+    private let eventsURL: URL
 
     init() {
         let dir = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("tracked_players.json")
+        eventsURL = dir.appendingPathComponent("crypto_events.json")
         load()
     }
 
@@ -23,7 +27,11 @@ final class TrackerStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            merge(try await CaptureService.fetchMine())
+            async let captures = CaptureService.fetchMine()
+            async let events = CryptoEventService.fetchMineByPlayer()
+            merge(try await captures)
+            eventsByPlayer = try await events
+            saveEvents()
             lastError = nil
         } catch {
             lastError = AppError.map(error).errorDescription
@@ -31,6 +39,17 @@ final class TrackerStore: ObservableObject {
     }
 
     func player(id: String) -> TrackedPlayer? { players.first { $0.id == id } }
+
+    /// Theft history for a target (empty if it has never been looted).
+    func events(for player: TrackedPlayer) -> [CryptoEvent] {
+        guard let pid = player.playerID, !pid.isEmpty else { return [] }
+        return eventsByPlayer[pid] ?? []
+    }
+
+    /// Full scoring readout for a target, using its cached theft history.
+    func assessment(for player: TrackedPlayer, userLevel: Int) -> TargetAssessment {
+        TargetAssessor.assess(player: player, events: events(for: player), userLevel: userLevel)
+    }
 
     /// Optimistically mark a row uploaded after a successful push (server also
     /// gets stamped via CaptureService.markUploaded).
@@ -43,7 +62,9 @@ final class TrackerStore: ObservableObject {
     /// Wipe local cache (used on sign-out so a shared device doesn't leak captures).
     func clear() {
         players = []
+        eventsByPlayer = [:]
         try? FileManager.default.removeItem(at: fileURL)
+        try? FileManager.default.removeItem(at: eventsURL)
     }
 
     private func merge(_ remote: [TrackedPlayer]) {
@@ -55,14 +76,23 @@ final class TrackerStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let rows = try? JSONDecoder().decode([TrackedPlayer].self, from: data)
-        else { return }
-        players = rows
+        if let data = try? Data(contentsOf: fileURL),
+           let rows = try? JSONDecoder().decode([TrackedPlayer].self, from: data) {
+            players = rows
+        }
+        if let data = try? Data(contentsOf: eventsURL),
+           let events = try? JSONDecoder().decode([String: [CryptoEvent]].self, from: data) {
+            eventsByPlayer = events
+        }
     }
 
     private func save() {
         guard let data = try? JSONEncoder().encode(players) else { return }
         try? data.write(to: fileURL, options: .atomic)
+    }
+
+    private func saveEvents() {
+        guard let data = try? JSONEncoder().encode(eventsByPlayer) else { return }
+        try? data.write(to: eventsURL, options: .atomic)
     }
 }

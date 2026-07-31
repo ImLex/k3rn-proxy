@@ -22,6 +22,15 @@ struct TrackedPlayer: Codable, Identifiable, Hashable, Sendable {
     var software: [CapturedSoftware]
     var capturedAt: String?
     var uploadedAt: String?
+    /// Stealable crypto currently held on the target (captures.crypto_hot).
+    var cryptoHot: Double?
+    /// Safe crypto the target can't lose (captures.crypto_cold).
+    var cryptoCold: Double?
+    /// When the wallet snapshot was last refreshed in-game.
+    var cryptoUpdatedAt: String?
+    /// The target's persistent hx wallet address (captures.wallet_address),
+    /// revealed when the member enters the target's wallet in-game.
+    var walletAddress: String?
 
     enum CodingKeys: String, CodingKey {
         case id, username, level, firewall, reputation, crew, software
@@ -29,6 +38,10 @@ struct TrackedPlayer: Codable, Identifiable, Hashable, Sendable {
         case currentIP = "current_ip"
         case capturedAt = "captured_at"
         case uploadedAt = "uploaded_at"
+        case cryptoHot = "crypto_hot"
+        case cryptoCold = "crypto_cold"
+        case cryptoUpdatedAt = "crypto_updated_at"
+        case walletAddress = "wallet_address"
     }
 
     var isUploaded: Bool { !(uploadedAt?.isEmpty ?? true) }

@@ -1,95 +1,145 @@
 import SwiftUI
 
-/// Virus tab: what to do with each tracked target (Siphon / Spam / Virus / Skip).
-/// v1 lists tracked targets with the stats that drive the decision; the full
-/// Android scoring engine (activity + crypto-per-active-day) lands in a later pass.
+@MainActor
+final class VirusModel: ObservableObject {
+    @Published private(set) var spam: [VirusDeployment] = []
+    @Published private(set) var siphon: [VirusDeployment] = []
+    @Published var errorMessage: String?
+    @Published private(set) var loading = true
+
+    var totalRateHr: Double { spam.filter(\.active).compactMap(\.earningRateHr).reduce(0, +) }
+    var totalSiphoned: Double { siphon.filter(\.active).compactMap(\.totalSiphoned).reduce(0, +) }
+    var activeSpam: Int { spam.filter(\.active).count }
+    var activeSiphon: Int { siphon.filter(\.active).count }
+
+    func load() async {
+        errorMessage = nil
+        do {
+            let rows = try await VirusService.fetchMine()
+            spam = rows.filter(\.isSpam).sorted(by: Self.order)
+            siphon = rows.filter { !$0.isSpam }.sorted(by: Self.order)
+        } catch {
+            errorMessage = AppError.map(error).errorDescription
+        }
+        loading = false
+    }
+
+    /// Active first, then by earned descending.
+    private static func order(_ a: VirusDeployment, _ b: VirusDeployment) -> Bool {
+        if a.active != b.active { return a.active && !b.active }
+        return (a.earned ?? 0) > (b.earned ?? 0)
+    }
+}
+
+/// Virus tab: the member's OWN spam/siphon deployments and their earnings,
+/// mirroring the Android companion's Virus screen. Data is captured passively
+/// from the game's /v1/user_spam and /v1/user_siphon calls by the proxy.
 struct VirusView: View {
     let actor: Actor
-    @EnvironmentObject private var store: TrackerStore
-
-    private var targets: [TrackedPlayer] {
-        store.players.sorted { ($0.level ?? 0) > ($1.level ?? 0) }
-    }
+    @StateObject private var model = VirusModel()
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.lg) {
-                    if let e = store.lastError { ErrorBanner(message: e) }
+                    if let e = model.errorMessage { ErrorBanner(message: e) }
 
-                    banner
-
-                    if targets.isEmpty {
+                    if model.spam.isEmpty && model.siphon.isEmpty && !model.loading {
                         EmptyState(
                             systemImage: "ladybug",
-                            title: "No targets to assess",
-                            message: "Open targets in-game with the VPN on — they show up here to plan spam and siphon runs."
+                            title: "No deployments yet",
+                            message: "Open your Spam or Siphon screen in-game with the VPN on — your deployments and earnings show up here."
                         )
                     } else {
-                        ForEach(targets) { p in
-                            NavigationLink {
-                                TrackedPlayerDetailView(trackedID: p.id, actor: actor)
-                            } label: { card(p) }
-                            .buttonStyle(.plain)
-                        }
+                        summary
+                        section(title: "Spam", rows: model.spam)
+                        section(title: "Siphon", rows: model.siphon)
                     }
                 }
                 .padding(Space.lg)
             }
             .background(Theme.background)
             .navigationTitle("Virus")
-            .refreshable { await store.refresh() }
+            .refreshable { await model.load() }
         }
-        .task { await store.refresh() }
+        .task { if model.loading { await model.load() } }
     }
 
-    private var banner: some View {
-        HStack(alignment: .top, spacing: Space.sm) {
-            Image(systemName: "info.circle")
-                .foregroundColor(Theme.accent)
-            Text("Full Siphon/Spam/Virus scoring is coming. For now, targets are ranked by level with the stats that drive the call.")
-                .font(.caption)
-                .foregroundColor(Theme.textSecondary)
+    private var summary: some View {
+        HStack(spacing: Space.md) {
+            StatTile(label: "Spam / hr",
+                     value: Self.crypto(model.totalRateHr),
+                     color: Theme.orange,
+                     hint: "\(model.activeSpam) active")
+            StatTile(label: "Siphoned",
+                     value: Self.crypto(model.totalSiphoned),
+                     color: Theme.crypto,
+                     hint: "\(model.activeSiphon) active")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle(padding: Space.md)
     }
 
-    private func card(_ p: TrackedPlayer) -> some View {
+    @ViewBuilder
+    private func section(title: String, rows: [VirusDeployment]) -> some View {
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: Space.sm) {
+                SectionHeader(title: title)
+                ForEach(rows) { row($0) }
+            }
+        }
+    }
+
+    private func row(_ d: VirusDeployment) -> some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack {
-                Text(p.username).font(.heading).foregroundColor(Theme.textPrimary)
+                Text(d.ip ?? "—").font(.mono(14, weight: .semibold))
+                    .foregroundColor(Theme.textPrimary)
+                if let lvl = d.level {
+                    TagPill(label: "Lv \(lvl)", color: Theme.info)
+                }
                 Spacer()
-                TagPill(label: verdict(p).0, color: verdict(p).1)
+                if !d.active { TagPill(label: "inactive", color: Theme.textFaint) }
             }
-            HStack(spacing: Space.sm) {
-                stat("LVL", p.level)
-                stat("FW", p.firewall)
-                stat("REP", p.reputation)
-                if !p.software.isEmpty {
-                    stat("SW", p.software.count)
+            HStack(spacing: Space.md) {
+                if d.isSpam {
+                    stat("RATE/HR", Self.crypto(d.earningRateHr), Theme.orange)
+                    stat("EARNED", Self.crypto(d.totalEarned), Theme.textPrimary)
+                    if let age = d.ageDays { stat("AGE", "\(age)d", Theme.textSecondary) }
+                } else {
+                    stat("SIPHON", d.percent.map { "\(Self.trim($0))%" } ?? "—", Theme.crypto)
+                    stat("PULLED", Self.crypto(d.totalSiphoned), Theme.textPrimary)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle()
+        .opacity(d.active ? 1 : 0.5)
+        .cardStyle(padding: Space.md)
     }
 
-    private func stat(_ label: String, _ value: Int?) -> some View {
-        VStack(spacing: 1) {
-            Text(value.map(String.init) ?? "—").font(.mono(15, weight: .semibold))
-                .foregroundColor(Theme.textPrimary)
+    private func stat(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.mono(15, weight: .semibold)).foregroundColor(color)
             Text(label).font(.system(size: 10, weight: .medium)).foregroundColor(Theme.textFaint)
         }
-        .frame(minWidth: 44)
     }
 
-    // Preliminary heuristic placeholder until the full scoring engine ships.
-    private func verdict(_ p: TrackedPlayer) -> (String, Color) {
-        let rep = p.reputation ?? 0
-        let fw = p.firewall ?? 0
-        if rep >= 1000 { return ("Siphon", Theme.crypto) }
-        if fw >= 8 { return ("Spam", Theme.orange) }
-        return ("Virus", Theme.purple)
+    // MARK: number formatting
+
+    /// Compact crypto amount: 1.2K / 3.4M / 5.1B, else the trimmed number.
+    private static func crypto(_ v: Double?) -> String {
+        guard let v, v != 0 else { return v == nil ? "—" : "0" }
+        let abs = Swift.abs(v)
+        switch abs {
+        case 1_000_000_000...: return trim(v / 1_000_000_000) + "B"
+        case 1_000_000...:     return trim(v / 1_000_000) + "M"
+        case 1_000...:         return trim(v / 1_000) + "K"
+        default:               return trim(v)
+        }
+    }
+
+    private static func trim(_ v: Double) -> String {
+        if v == v.rounded() { return String(Int(v)) }
+        return String(format: "%.1f", v)
     }
 }
