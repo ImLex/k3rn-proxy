@@ -6,6 +6,23 @@ struct CapturedSoftware: Codable, Hashable, Identifiable, Sendable {
     let category: String?
     let level: Int
     var id: String { name }
+
+    enum CodingKeys: String, CodingKey { case name, category, level }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        category = try c.decodeIfPresent(String.self, forKey: .category)
+        // The game (and older capture rows) store software_level as a JSON
+        // string; accept either a number or a numeric string.
+        if let i = try? c.decode(Int.self, forKey: .level) {
+            level = i
+        } else if let s = try? c.decode(String.self, forKey: .level), let i = Int(s) {
+            level = i
+        } else {
+            level = 1
+        }
+    }
 }
 
 /// A target the member has opened, tracked privately. Decodes directly from a

@@ -511,10 +511,11 @@ class K3rnCapture:
                     pass
                 continue
             name = SW_NAMES.get(type_id, f"Software {type_id}")
+            lvl = _int(level)
             out.append({
                 "name": name,
                 "category": SW_CATEGORY.get(name, "UTILITY"),
-                "level": level if level is not None else 1,
+                "level": lvl if lvl is not None else 1,
             })
         return out, firewall
 
