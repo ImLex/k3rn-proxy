@@ -14,25 +14,46 @@ enum ScanService {
 
     // MARK: Targets
 
+    /// The pool can exceed PostgREST's default 1000-row cap, so page through with
+    /// explicit ranges until a short page signals the end.
     static func fetchMine() async throws -> [ScanTarget] {
+        let pageSize = 1000
+        var all: [ScanTarget] = []
+        var from = 0
         do {
-            return try await client.from("scan_targets")
-                .select()
-                .order("last_scanned_at", ascending: false)
-                .execute()
-                .value
+            while true {
+                let page: [ScanTarget] = try await client.from("scan_targets")
+                    .select()
+                    .order("last_scanned_at", ascending: false)
+                    .range(from: from, to: from + pageSize - 1)
+                    .execute()
+                    .value
+                all.append(contentsOf: page)
+                if page.count < pageSize { break }
+                from += pageSize
+            }
+            return all
         } catch { throw AppError.map(error) }
     }
 
     // MARK: Deep-scan toggle
 
-    static func fetchDeepScan() async throws -> Bool {
-        struct Row: Decodable { let deepScan: Bool
-            enum CodingKeys: String, CodingKey { case deepScan = "deep_scan" } }
+    struct ScanSettings: Decodable {
+        let deepScan: Bool
+        let scanCount: Int
+        enum CodingKeys: String, CodingKey {
+            case deepScan = "deep_scan"
+            case scanCount = "scan_count"
+        }
+    }
+
+    /// Both the toggle and the boost count in one read, so the UI can seed its
+    /// controls without two round-trips.
+    static func fetchSettings() async throws -> ScanSettings {
         do {
-            let rows: [Row] = try await client.from("scan_settings")
-                .select("deep_scan").limit(1).execute().value
-            return rows.first?.deepScan ?? false
+            let rows: [ScanSettings] = try await client.from("scan_settings")
+                .select("deep_scan,scan_count").limit(1).execute().value
+            return rows.first ?? ScanSettings(deepScan: false, scanCount: 5000)
         } catch { throw AppError.map(error) }
     }
 
@@ -41,6 +62,22 @@ enum ScanService {
             "owner_user_id": .string(try await ownerUserID()),
             "owner_discord_id": .string(actor.discordID),
             "deep_scan": .bool(on),
+            "updated_at": .string(nowISO()),
+        ]
+        do {
+            try await client.from("scan_settings")
+                .upsert(payload, onConflict: "owner_user_id")
+                .execute()
+        } catch { throw AppError.map(error) }
+    }
+
+    /// The addon reads `scan_count` from its settings cache, so writing it here is
+    /// enough to change how many players the next boosted scan captures.
+    static func setScanCount(_ count: Int, actor: Actor) async throws {
+        let payload: [String: AnyJSON] = [
+            "owner_user_id": .string(try await ownerUserID()),
+            "owner_discord_id": .string(actor.discordID),
+            "scan_count": .integer(count),
             "updated_at": .string(nowISO()),
         ]
         do {

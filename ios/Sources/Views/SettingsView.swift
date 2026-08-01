@@ -5,6 +5,7 @@ struct SettingsView: View {
     let actor: Actor
     @EnvironmentObject private var session: SessionManager
     @EnvironmentObject private var tracker: TrackerStore
+    @EnvironmentObject private var scanStore: ScanStore
     @AppStorage("user_level") private var userLevel = 0
     @AppStorage("active_game_pid") private var activePID = ""
 
@@ -60,6 +61,7 @@ struct SettingsView: View {
 
                     Button(role: .destructive) {
                         tracker.clear()
+                        scanStore.clear()
                         Task { await session.signOut() }
                     } label: {
                         Text("Sign out & clear data").fontWeight(.semibold)

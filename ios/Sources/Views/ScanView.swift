@@ -2,19 +2,16 @@ import SwiftUI
 
 @MainActor
 final class ScanModel: ObservableObject {
-    @Published private(set) var targets: [ScanTarget] = []
     @Published var deepScan = false
+    @Published var scanCount = 5000
     @Published private(set) var reveals: [String: RevealRequest] = [:]  // player_id -> row
     @Published var errorMessage: String?
     @Published private(set) var loading = true
     @Published var savingToggle = false
+    @Published var savingCount = false
 
     let actor: Actor
     init(actor: Actor) { self.actor = actor }
-
-    var sortedTargets: [ScanTarget] {
-        targets.sorted { ($0.lastScannedAt ?? "") > ($1.lastScannedAt ?? "") }
-    }
 
     /// A reveal is in flight anywhere in the pool — blocks queuing another
     /// (single-lookup rule, also enforced in the DB).
@@ -25,14 +22,18 @@ final class ScanModel: ObservableObject {
     /// Offline (signed-out): no session, so stop the spinner and show the gate.
     func setOffline() { loading = false }
 
-    func load() async {
+    /// Settings + reveals come from the model; the target pool lives in the shared
+    /// `ScanStore` so it persists across relaunch and stays put when Deep scan is
+    /// turned back off.
+    func load(store: ScanStore) async {
         errorMessage = nil
+        async let settings = ScanService.fetchSettings()
+        async let r = ScanService.fetchReveals()
+        await store.refresh()
         do {
-            async let t = ScanService.fetchMine()
-            async let d = ScanService.fetchDeepScan()
-            async let r = ScanService.fetchReveals()
-            targets = try await t
-            deepScan = try await d
+            let s = try await settings
+            deepScan = s.deepScan
+            scanCount = s.scanCount
             reveals = Dictionary(try await r.map { ($0.playerID, $0) },
                                  uniquingKeysWith: { first, _ in first })
         } catch {
@@ -54,11 +55,23 @@ final class ScanModel: ObservableObject {
         savingToggle = false
     }
 
-    func queueReveal(_ playerID: String) async {
+    func setScanCount(_ count: Int) async {
+        savingCount = true
+        errorMessage = nil
+        do {
+            try await ScanService.setScanCount(count, actor: actor)
+            scanCount = count
+        } catch {
+            errorMessage = AppError.map(error).errorDescription
+        }
+        savingCount = false
+    }
+
+    func queueReveal(_ playerID: String, store: ScanStore) async {
         errorMessage = nil
         do {
             try await ScanService.queueReveal(playerID: playerID, actor: actor)
-            await load()  // pull the new pending row back
+            await load(store: store)  // pull the new pending row back
         } catch {
             errorMessage = AppError.map(error).errorDescription
         }
@@ -70,10 +83,27 @@ final class ScanModel: ObservableObject {
 /// here (never promoted to the shared crew DB). Per-target "Reveal real IP" hijacks
 /// the member's next in-game Bypass — single lookup, never looped.
 struct ScanView: View {
+    @EnvironmentObject private var store: ScanStore
     @StateObject private var model: ScanModel
     @State private var confirmReveal: ScanTarget?
+    @State private var search = ""
+    @State private var countText = ""
 
     init(actor: Actor) { _model = StateObject(wrappedValue: ScanModel(actor: actor)) }
+
+    /// Substring match over username, both IPs, and player id.
+    private var filtered: [ScanTarget] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return store.sortedTargets }
+        return store.sortedTargets.filter { t in
+            (t.username?.lowercased().contains(q) ?? false)
+            || (t.ip?.lowercased().contains(q) ?? false)
+            || (t.realIP?.lowercased().contains(q) ?? false)
+            || t.playerID.lowercased().contains(q)
+        }
+    }
+
+    private var isSyncing: Bool { model.loading || store.loading }
 
     var body: some View {
         NavigationView {
@@ -81,24 +111,35 @@ struct ScanView: View {
                 VStack(alignment: .leading, spacing: Space.lg) {
                     if let e = model.errorMessage { ErrorBanner(message: e) }
                     toggleCard
-                    if model.targets.isEmpty && !model.loading {
+                    if isSyncing { syncingBanner }
+                    if store.targets.isEmpty && !isSyncing {
                         EmptyState(
                             systemImage: "dot.radiowaves.left.and.right",
                             title: "No scanned targets yet",
                             message: "Turn on Deep scan, then run Scan in-game with the VPN on. Your full target pool syncs here privately."
                         )
-                    } else if !model.targets.isEmpty {
+                    } else if !store.targets.isEmpty {
                         summary
-                        ForEach(model.sortedTargets) { row($0) }
+                        searchField
+                        if filtered.isEmpty {
+                            Text("No matches for \u{201C}\(search)\u{201D}")
+                                .font(.system(size: 14)).foregroundColor(Theme.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, Space.lg)
+                        } else {
+                            ForEach(filtered) { row($0) }
+                        }
                     }
                 }
                 .padding(Space.lg)
             }
             .background(Theme.background)
             .navigationTitle("Scan")
-            .refreshable { await model.load() }
+            .refreshable { await model.load(store: store) }
         }
-        .task { if model.loading { await model.load() } }
+        .task {
+            countText = "\(model.scanCount)"
+            if model.loading { await model.load(store: store); countText = "\(model.scanCount)" }
+        }
         .confirmationDialog(
             "Reveal real IP?",
             isPresented: Binding(
@@ -110,7 +151,7 @@ struct ScanView: View {
         ) { target in
             Button("Reveal (uses next Bypass)") {
                 let pid = target.playerID
-                Task { await model.queueReveal(pid) }
+                Task { await model.queueReveal(pid, store: store) }
                 confirmReveal = nil
             }
             Button("Cancel", role: .cancel) { confirmReveal = nil }
@@ -134,16 +175,74 @@ struct ScanView: View {
             }
             Text("When on, your next in-game Scan captures the full target pool here. The in-game scan screen still shows its normal count.")
                 .font(.system(size: 13)).foregroundColor(Theme.textSecondary)
+
+            Divider().overlay(Theme.border)
+
+            HStack(spacing: Space.sm) {
+                Text("Scan amount").font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Theme.textPrimary)
+                Spacer()
+                TextField("5000", text: $countText)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .font(.mono(15, weight: .semibold))
+                    .foregroundColor(Theme.textPrimary)
+                    .frame(width: 80)
+                    .padding(.vertical, 6).padding(.horizontal, 8)
+                    .background(Theme.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Button {
+                    let n = max(1, Int(countText.filter(\.isNumber)) ?? model.scanCount)
+                    countText = "\(n)"
+                    Task { await model.setScanCount(n) }
+                } label: {
+                    if model.savingCount { ProgressView().tint(Theme.accent) }
+                    else { Text("Set").font(.system(size: 14, weight: .semibold)) }
+                }
+                .disabled(model.savingCount || countText.filter(\.isNumber).isEmpty)
+                .foregroundColor(Theme.accent)
+            }
+            Text("How many players the next boosted scan captures. The addon reads this on its next refresh.")
+                .font(.system(size: 12)).foregroundColor(Theme.textFaint)
         }
         .cardStyle(padding: Space.md)
     }
 
+    private var syncingBanner: some View {
+        HStack(spacing: Space.sm) {
+            ProgressView().tint(Theme.accent)
+            Text("Syncing target pool… this can take a moment after a big scan.")
+                .font(.system(size: 13)).foregroundColor(Theme.textSecondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle(padding: Space.md)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: Space.sm) {
+            Image(systemName: "magnifyingglass").foregroundColor(Theme.textFaint)
+            TextField("Search username, IP, or ID", text: $search)
+                .font(.system(size: 15)).foregroundColor(Theme.textPrimary)
+                .autocorrectionDisabled(true)
+                .textInputAutocapitalization(.never)
+            if !search.isEmpty {
+                Button { search = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundColor(Theme.textFaint)
+                }
+            }
+        }
+        .padding(.vertical, 10).padding(.horizontal, Space.md)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
     private var summary: some View {
         HStack(spacing: Space.md) {
-            StatTile(label: "Pool", value: "\(model.targets.count)", color: Theme.accent,
-                     hint: "scanned players")
+            StatTile(label: "Pool", value: "\(store.targets.count)", color: Theme.accent,
+                     hint: search.isEmpty ? "scanned players" : "\(filtered.count) shown")
             StatTile(label: "Revealed",
-                     value: "\(model.reveals.values.filter { $0.realIP != nil }.count)",
+                     value: "\(store.targets.filter { $0.realIP != nil }.count)",
                      color: Theme.crypto,
                      hint: model.hasPendingReveal ? "1 pending" : "real IPs")
         }
@@ -179,7 +278,10 @@ struct ScanView: View {
 
     @ViewBuilder
     private func revealControl(_ t: ScanTarget, _ reveal: RevealRequest?) -> some View {
-        if t.realIP != nil || reveal?.status == "done" {
+        // Keyed on the target's own real_ip, not the reveal row: when a target
+        // scrambles its IP the DB clears real_ip, so the button re-arms for a
+        // fresh reveal even though an old reveal row is still marked "done".
+        if t.realIP != nil {
             TagPill(label: "revealed", color: Theme.crypto)
         } else if reveal?.status == "pending" {
             TagPill(label: "pending", color: Theme.orange)

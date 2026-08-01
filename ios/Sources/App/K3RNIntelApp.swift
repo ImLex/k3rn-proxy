@@ -9,6 +9,7 @@ struct K3RNIntelApp: App {
     @StateObject private var session = SessionManager()
     @StateObject private var nicknames = NicknameStore()
     @StateObject private var tracker = TrackerStore()
+    @StateObject private var scanStore = ScanStore()
 
     init() {
         // iOS 15 has no .scrollContentBackground(.hidden); clear the List/table
@@ -24,6 +25,7 @@ struct K3RNIntelApp: App {
                 .environmentObject(session)
                 .environmentObject(nicknames)
                 .environmentObject(tracker)
+                .environmentObject(scanStore)
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
                 .task { await session.bootstrap() }
