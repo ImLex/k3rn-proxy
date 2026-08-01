@@ -62,25 +62,30 @@ struct TunnelSetupView: View {
     private func qrCard(_ tunnel: WireGuardTunnel) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "1. Add the tunnel")
-            Text("In the WireGuard app tap **+ → Create from QR code** and scan this:")
+            Text("Tap **Push to WireGuard** — it hands your tunnel straight to the WireGuard app, ready to add. Pick WireGuard if iOS asks where to open it.")
                 .font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
-            if let img = Self.qrImage(from: tunnel.confText) {
-                Image(uiImage: img)
-                    .interpolation(.none).resizable().scaledToFit()
-                    .frame(maxWidth: 240).frame(maxWidth: .infinity)
-                    .padding(10).background(Color.white).cornerRadius(12)
+            Button {
+                showShare = true
+            } label: {
+                Label("Push to WireGuard", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity).padding(.vertical, 12)
+                    .foregroundStyle(.black).background(Theme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .sheet(isPresented: $showShare) {
+                ShareSheet(items: [Self.confFileURL(tunnel.confText)])
             }
             DetailRow(label: "Tunnel IP") {
                 Text(tunnel.assignedIP).font(.mono(14)).foregroundStyle(Theme.textPrimary)
             }
-            Button {
-                showShare = true
-            } label: {
-                Label("Or share the config file", systemImage: "square.and.arrow.up")
-                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent)
-            }
-            .sheet(isPresented: $showShare) {
-                ShareSheet(items: [Self.confFileURL(tunnel.confText)])
+            Text("Prefer to scan? In WireGuard tap + → Create from QR code and scan this:")
+                .font(.system(size: 12)).foregroundStyle(Theme.textFaint)
+            if let img = Self.qrImage(from: tunnel.confText) {
+                Image(uiImage: img)
+                    .interpolation(.none).resizable().scaledToFit()
+                    .frame(maxWidth: 200).frame(maxWidth: .infinity)
+                    .padding(10).background(Color.white).cornerRadius(12)
             }
         }
         .cardStyle()
