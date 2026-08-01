@@ -253,7 +253,7 @@ struct TrackedPlayerDetailView: View {
             }
             .disabled(working)
 
-            Text("Shares this player with the whole crew. Your captured software list and theft history stay personal.")
+            Text("Shares this player and their captured software with the whole crew. Your theft history stays personal.")
                 .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -286,10 +286,14 @@ struct TrackedPlayerDetailView: View {
                 reputation: p.reputation,
                 notes: nil
             )
+            let player: Player
             if let existing = try await PlayerService.findExisting(playerID: p.playerID, username: p.username) {
-                _ = try await PlayerService.update(id: existing.id, input: input, actor: actor)
+                player = try await PlayerService.update(id: existing.id, input: input, actor: actor)
             } else {
-                _ = try await PlayerService.create(input, actor: actor)
+                player = try await PlayerService.create(input, actor: actor)
+            }
+            if !p.software.isEmpty {
+                try await SoftwareService.uploadInstalled(playerID: player.id, software: p.software)
             }
             try await CaptureService.markUploaded(id: p.id)
             store.markUploaded(id: p.id)
