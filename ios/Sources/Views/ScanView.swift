@@ -94,8 +94,8 @@ struct ScanView: View {
     /// Substring match over username, both IPs, and player id.
     private var filtered: [ScanTarget] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return store.sortedTargets }
-        return store.sortedTargets.filter { t in
+        guard !q.isEmpty else { return store.targets }   // already sorted in the store
+        return store.targets.filter { t in
             (t.username?.lowercased().contains(q) ?? false)
             || (t.ip?.lowercased().contains(q) ?? false)
             || (t.realIP?.lowercased().contains(q) ?? false)
@@ -108,7 +108,9 @@ struct ScanView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(alignment: .leading, spacing: Space.lg) {
+                // LazyVStack (not VStack) so only on-screen rows are built — a full
+                // pool is thousands of targets and eager rendering crashes the app.
+                LazyVStack(alignment: .leading, spacing: Space.lg) {
                     if let e = model.errorMessage { ErrorBanner(message: e) }
                     toggleCard
                     if isSyncing { syncingBanner }
