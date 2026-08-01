@@ -121,6 +121,26 @@ enum ScanService {
         } catch { throw AppError.map(error) }
     }
 
+    /// Manually clear a target's revealed IP: null `scan_targets.real_ip` and wipe
+    /// that target's reveal history so a fresh reveal can be queued right away. The
+    /// scramble-reset trigger does this automatically on IP change; this is the
+    /// on-demand version (e.g. the member wants to re-verify a suspiciously old IP).
+    static func resetReveal(playerID: String, actor: Actor) async throws {
+        let owner = try await ownerUserID()
+        do {
+            try await client.from("scan_targets")
+                .update(["real_ip": AnyJSON.null])
+                .eq("owner_user_id", value: owner)
+                .eq("player_id", value: playerID)
+                .execute()
+            try await client.from("reveal_queue")
+                .delete()
+                .eq("owner_user_id", value: owner)
+                .eq("player_id", value: playerID)
+                .execute()
+        } catch { throw AppError.map(error) }
+    }
+
     private static let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
     }()

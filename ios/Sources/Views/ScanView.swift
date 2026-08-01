@@ -79,6 +79,16 @@ final class ScanModel: ObservableObject {
             errorMessage = AppError.map(error).errorDescription
         }
     }
+
+    func resetReveal(_ playerID: String, store: ScanStore) async {
+        errorMessage = nil
+        do {
+            try await ScanService.resetReveal(playerID: playerID, actor: actor)
+            await load(store: store)  // real_ip is now null; button re-arms
+        } catch {
+            errorMessage = AppError.map(error).errorDescription
+        }
+    }
 }
 
 /// Scan tab: the member's private Deep-scan target pool. Turning Deep scan on
@@ -89,6 +99,7 @@ struct ScanView: View {
     @EnvironmentObject private var store: ScanStore
     @StateObject private var model: ScanModel
     @State private var confirmReveal: ScanTarget?
+    @State private var confirmReset: ScanTarget?
     @State private var search = ""
     @State private var countText = ""
     @State private var copiedID: String?
@@ -163,6 +174,24 @@ struct ScanView: View {
             Button("Cancel", role: .cancel) { confirmReveal = nil }
         } message: { _ in
             Text("This hijacks your next in-game Bypass to unmask this target. That Bypass won't hit its intended victim — it auto-aborts once the IP is read.")
+        }
+        .confirmationDialog(
+            "Reset revealed IP?",
+            isPresented: Binding(
+                get: { confirmReset != nil },
+                set: { if !$0 { confirmReset = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: confirmReset
+        ) { target in
+            Button("Reset reveal", role: .destructive) {
+                let pid = target.playerID
+                Task { await model.resetReveal(pid, store: store) }
+                confirmReset = nil
+            }
+            Button("Cancel", role: .cancel) { confirmReset = nil }
+        } message: { _ in
+            Text("Clears the stored real IP for this target so you can queue a fresh reveal. The old reveal history for this target is removed.")
         }
     }
 
@@ -320,7 +349,17 @@ struct ScanView: View {
         // scrambles its IP the DB clears real_ip, so the button re-arms for a
         // fresh reveal even though an old reveal row is still marked "done".
         if t.realIP != nil {
-            TagPill(label: "revealed", color: Theme.crypto)
+            Button {
+                confirmReset = t
+            } label: {
+                HStack(spacing: 4) {
+                    TagPill(label: "revealed", color: Theme.crypto)
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Theme.textFaint)
+                }
+            }
+            .buttonStyle(.plain)
         } else if reveal?.status == "pending" {
             TagPill(label: "pending", color: Theme.orange)
         } else {
