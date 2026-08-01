@@ -44,6 +44,8 @@ Response shape (from HE2Bot: mam/*):
 """
 
 import datetime
+import hashlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -59,6 +61,41 @@ from pathlib import Path
 logger = logging.getLogger("k3rn_capture")
 
 GAME_HOST = "api2.hackex.net"
+GAME_ORIGIN = "https://" + GAME_HOST
+# The HackEx app-bundle HMAC secret. Stable through v1.4.2; overridable via env in
+# case the game rotates it. Used only to RE-SIGN requests we mutate (deep-scan
+# count boost, Bypass victim swap, auto-abort) so the server accepts them.
+API_SECRET = os.environ.get(
+    "K3RN_APP_SECRET",
+    "9778f8bac4f3907226337dc5d4ab706851026b5febafeb9edf01f340109d1fb3",
+)
+# The one endpoint we actively boost: a random scan. Passive capture ignores it,
+# but the scanner rewrites `count` when the member has Deep scan on.
+SCAN_PATH = "/v1/user_scan_random"
+# A Bypass process start (process_type_id=1, software_id=2) is what unmasks a
+# target's real IP; the reveal feature hijacks it to a queued victim.
+PROCESS_PATH = "/v1/process"
+PROCESS_DELETE_PATH = "/v1/process_delete"
+# When no original count is present, cap what the iPhone actually receives so the
+# in-game scan screen isn't flooded with the boosted pool.
+SCAN_TRUNCATE_DEFAULT = 10
+
+
+def _sign(method: str, path: str, body: str = "") -> tuple[str, str]:
+    """HMAC-SHA256 over `{METHOD}:{path}:{ts}:{body}` (matches the HackEx app and
+    the PC scanner addons). Returns (hex_signature, unix_ts)."""
+    ts = str(int(time.time()))
+    msg = f"{method}:{path}:{ts}:{body}"
+    sig = hmac.new(API_SECRET.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return sig, ts
+
+
+def _set_sig(flow, sig: str, ts: str) -> None:
+    """Overwrite the X-Signature / X-Timestamp headers on a request in place,
+    preserving the original header casing."""
+    keys = {k.lower(): k for k in flow.request.headers.keys()}
+    flow.request.headers[keys.get("x-signature", "X-Signature")] = sig
+    flow.request.headers[keys.get("x-timestamp", "X-Timestamp")] = ts
 # A member opens a target two ways: a fresh target hits /v1/user_victim_access,
 # an already-bypassed one hits /v1/user_victim. Both carry identity + user_software.
 VICTIM_PATHS = {"/v1/user_victim", "/v1/user_victim_access"}
@@ -237,6 +274,65 @@ class Supabase:
     def insert_crypto_event(self, body: dict):
         self._req("POST", "target_crypto_events", body=body)
 
+    # -- scanner (0013) ---------------------------------------------------- #
+    def get_all_scan_settings(self):
+        """discord_id -> (deep_scan bool, scan_count int). Read in bulk on the
+        refresh loop so the request hook can decide to boost without a live DB
+        round-trip on every scan."""
+        rows = self._req(
+            "GET",
+            "scan_settings?select=owner_discord_id,deep_scan,scan_count",
+        )
+        out = {}
+        for r in rows or []:
+            disc = r.get("owner_discord_id")
+            if disc:
+                out[str(disc)] = (
+                    bool(r.get("deep_scan")),
+                    int(r.get("scan_count") or 5000),
+                )
+        return out
+
+    def upsert_scan_targets(self, rows: list):
+        """Accumulating private pool: one row per (owner, player). merge-duplicates
+        preserves first_scanned_at (never re-sent) while refreshing the rest."""
+        if not rows:
+            return
+        self._req(
+            "POST",
+            "scan_targets?on_conflict=owner_user_id,player_id",
+            body=rows,
+            prefer="resolution=merge-duplicates",
+        )
+
+    def get_pending_reveal(self, owner_user_id: str):
+        """The member's single pending reveal target, or None. Read live per Bypass
+        (rare) so a just-queued reveal is honored immediately."""
+        rows = self._req(
+            "GET",
+            f"reveal_queue?owner_user_id=eq.{urllib.parse.quote(owner_user_id)}"
+            "&status=eq.pending&select=id,player_id&limit=1",
+        )
+        return rows[0] if rows else None
+
+    def resolve_reveal(self, reveal_id: str, ip: str | None, status: str):
+        self._req(
+            "PATCH",
+            f"reveal_queue?id=eq.{urllib.parse.quote(str(reveal_id))}",
+            body={
+                "status": status,
+                "real_ip": ip,
+                "resolved_at": _now_iso(),
+            },
+        )
+
+    def update_scan_real_ip(self, owner_user_id: str, player_id: str, ip: str):
+        q = (
+            f"scan_targets?owner_user_id=eq.{urllib.parse.quote(owner_user_id)}"
+            f"&player_id=eq.{urllib.parse.quote(str(player_id))}"
+        )
+        self._req("PATCH", q, body={"real_ip": ip})
+
     def upsert_own_profile(self, body: dict):
         """One row per (member, game account) — see 0011. merge-duplicates so the
         profile handler and the wallet handler can each write their own columns
@@ -335,6 +431,32 @@ def parse_result(r: dict) -> dict | None:
     }
 
 
+def parse_scan_row(r: dict) -> dict | None:
+    """Map one /v1/user_scan_random result onto scan_targets columns. Keeps the
+    masked/displayed `ip` as-is (real_ip is filled later by a reveal). The row
+    fields mirror a victim identity: id/level/reputation/firewall_level/status/
+    username/ip/created_at."""
+    if not isinstance(r, dict):
+        return None
+    pid = r.get("id") or r.get("user_id")
+    if pid is None:
+        return None
+    username = (r.get("username") or "").strip() or None
+    fw = r.get("firewall_level")
+    if fw is None:
+        fw = r.get("fw_level")
+    return {
+        "player_id": str(pid),
+        "username": username,
+        "ip": _clean(r.get("ip")),
+        "level": _int(r.get("level")),
+        "firewall": _int(fw),
+        "reputation": _int(r.get("reputation")),
+        "status": _clean(r.get("status")),
+        "game_created_at": _clean(r.get("created_at")),
+    }
+
+
 def _own_device(data: dict) -> str | None:
     """Own-device label from /v1/user. Confirmed by the K3RN_DUMP_OWN capture:
     the device is a `user_device` subobject whose `name` is the human-readable
@@ -382,6 +504,9 @@ class K3rnCapture:
         # so the wallet handler (which carries no player_id) can target the right
         # own_profile row when a member has several HackEx accounts.
         self._own_pid: dict[str, str] = {}
+        # discord_id -> (deep_scan, scan_count), refreshed on the wg-map loop so
+        # the request hook decides the boost without a live DB read per scan.
+        self._scan_settings: dict[str, tuple[bool, int]] = {}
 
     # -- mitmproxy lifecycle ------------------------------------------------ #
     def running(self):
@@ -412,7 +537,8 @@ class K3rnCapture:
 
     def _refresh_wg_map(self):
         """Periodically re-read wg_peers so a newly self-provisioned crew mate is
-        captured without a restart. A failed read keeps the last good map."""
+        captured without a restart. A failed read keeps the last good map. The same
+        loop refreshes each member's Deep-scan setting."""
         while True:
             time.sleep(WG_MAP_REFRESH)
             try:
@@ -421,11 +547,90 @@ class K3rnCapture:
                     self.wg_map = peers
             except Exception as exc:  # noqa: BLE001 - keep the last good map
                 logger.warning("wg_peers refresh failed: %s", exc)
+            try:
+                self._scan_settings = self.db.get_all_scan_settings()
+            except Exception as exc:  # noqa: BLE001 - keep the last good settings
+                logger.warning("scan_settings refresh failed: %s", exc)
+
+    def request(self, flow):
+        """Ride the member's own in-flight request. Two active mutations, both
+        opt-in and both re-signed so the server's device_check still passes:
+          * Deep-scan boost: rewrite the scan `count` up to the member's setting.
+          * Reveal hijack: redirect a Bypass start to a queued reveal target.
+        Everything else passes through untouched."""
+        if not self.enabled or flow.request.pretty_host != GAME_HOST:
+            return
+        actor = self.wg_map.get(self._client_ip(flow))
+        if not actor:  # unknown WG peer -> not one of our members
+            return
+        path = flow.request.path.split("?", 1)[0]
+        if flow.request.method == "GET" and path == SCAN_PATH:
+            self._boost_scan(flow, actor)
+        elif flow.request.method == "POST" and path == PROCESS_PATH:
+            self._hijack_bypass(flow, actor)
+
+    def _boost_scan(self, flow, actor):
+        """If the member has Deep scan on, raise `count` to their scan_count and
+        re-sign. The original count is stashed so the response is truncated back to
+        it — the in-game scan screen looks unchanged."""
+        actor_id, _ = actor
+        deep, scan_count = self._scan_settings.get(actor_id, (False, 0))
+        if not deep:
+            return
+        orig = flow.request.query.get("count")
+        flow.request.query["count"] = str(scan_count)
+        flow.metadata["k3rn_scan_boost"] = True
+        flow.metadata["k3rn_scan_orig"] = orig
+        sig, ts = _sign("GET", flow.request.path)
+        _set_sig(flow, sig, ts)
+
+    def _hijack_bypass(self, flow, actor):
+        """A Bypass start (process_type_id=1, software_id=2) unmasks a target's real
+        IP. If the member has a pending reveal queued, swap the victim to that target
+        and re-sign; the response handler reads victim_ip_real and auto-aborts."""
+        body = self._req_json(flow)
+        if not body:
+            return
+        try:
+            if int(body.get("process_type_id", 0)) != 1 or int(body.get("software_id", 0)) != 2:
+                return
+        except (TypeError, ValueError):
+            return
+        owner_user_id = self._resolve_user_id(actor[0])
+        if not owner_user_id:
+            return
+        try:
+            pending = self.db.get_pending_reveal(owner_user_id)
+        except Exception as exc:  # noqa: BLE001 - a failed read must not break the bypass
+            logger.warning("reveal lookup failed: %s", exc)
+            return
+        if not pending:
+            return
+        target_pid = str(pending.get("player_id"))
+        body["victim_user_id"] = target_pid
+        new_text = json.dumps(body, separators=(",", ":"))
+        flow.request.set_text(new_text)
+        sig, ts = _sign("POST", flow.request.path, new_text)
+        _set_sig(flow, sig, ts)
+        flow.metadata["k3rn_reveal_id"] = pending.get("id")
+        flow.metadata["k3rn_reveal_pid"] = target_pid
+        flow.metadata["k3rn_reveal_owner"] = owner_user_id
 
     def response(self, flow):
         if not self.enabled or flow.request.pretty_host != GAME_HOST:
             return
         path = flow.request.path.split("?", 1)[0]
+        # Scanner: a boosted scan is captured into the private pool, then its
+        # response is truncated back to the original count. Only fires when the
+        # request hook actually boosted it (member had Deep scan on).
+        if path == SCAN_PATH and flow.metadata.get("k3rn_scan_boost"):
+            self._handle_scan_response(flow)
+            return
+        # Reveal: a hijacked Bypass carries the queued target's real IP. Finish the
+        # reveal (patch real_ip, resolve queue, auto-abort) — but still fall through
+        # so the passive victim_ip capture runs too.
+        if path == PROCESS_PATH and flow.metadata.get("k3rn_reveal_id"):
+            self._handle_reveal_response(flow)
         is_victim = path in VICTIM_PATHS
         virus_kind = VIRUS_PATHS.get(path)
         is_wallet = path == VICTIM_WALLET_PATH
@@ -582,6 +787,10 @@ class K3rnCapture:
                     self._capture_own_wallet(job)
                 elif kind == "victim_ip":
                     self._capture_victim_ip(job)
+                elif kind == "scan":
+                    self._capture_scan(job)
+                elif kind == "reveal":
+                    self._reveal(job)
                 else:
                     self._capture(job)
             except Exception as exc:  # noqa: BLE001 - never kill the writer loop
@@ -654,6 +863,132 @@ class K3rnCapture:
             real_by_victim[str(vid)] = real  # dedupe repeated victims in the list
         for player_id, ip in real_by_victim.items():
             self.db.update_capture_ip(owner_user_id, player_id, ip)
+
+    # -- scanner (0013) ----------------------------------------------------- #
+    def _handle_scan_response(self, flow):
+        """Boosted /v1/user_scan_random: enqueue the full pool into scan_targets,
+        then truncate the response back to the original count so the game UI is
+        unchanged. Runs in the response hook so truncation happens before the body
+        is handed to the iPhone."""
+        actor = self.wg_map.get(self._client_ip(flow))
+        data = self._json_body(flow)
+        results = (data or {}).get("scan_results")
+        if actor and isinstance(results, list):
+            self._enqueue({"job": "scan", "rows": results, "actor": actor})
+        # Truncate what the iPhone receives back to its original count.
+        if isinstance(results, list):
+            try:
+                orig = int(flow.metadata.get("k3rn_scan_orig"))
+            except (TypeError, ValueError):
+                orig = SCAN_TRUNCATE_DEFAULT
+            if orig < 0:
+                orig = SCAN_TRUNCATE_DEFAULT
+            data["scan_results"] = results[:orig]
+            try:
+                flow.response.set_text(json.dumps(data))
+            except Exception as exc:  # noqa: BLE001 - leave body as-is on failure
+                logger.warning("scan truncate failed: %s", exc)
+
+    def _handle_reveal_response(self, flow):
+        """Hijacked Bypass response: read the queued target's real IP + process id,
+        then hand off to the writer to patch scan_targets, resolve the reveal, and
+        auto-abort the process (single-lookup — never leave it running)."""
+        data = self._json_body(flow)
+        pid = flow.metadata.get("k3rn_reveal_pid")
+        procs = (data or {}).get("user_processes") or []
+        if isinstance(procs, dict):
+            procs = [procs]
+        real_ip, process_id = None, None
+        for p in procs:
+            if isinstance(p, dict) and str(p.get("victim_user_id")) == str(pid):
+                real_ip = normalize_ipv4(p.get("victim_ip_real") or p.get("ip"))
+                process_id = p.get("id")
+                break
+        if process_id is None:  # fall back to the newest process just started
+            for p in procs:
+                if isinstance(p, dict):
+                    real_ip = real_ip or normalize_ipv4(
+                        p.get("victim_ip_real") or p.get("ip"))
+                    process_id = p.get("id")
+                    break
+        self._enqueue({
+            "job": "reveal",
+            "reveal_id": flow.metadata.get("k3rn_reveal_id"),
+            "owner_user_id": flow.metadata.get("k3rn_reveal_owner"),
+            "player_id": pid,
+            "real_ip": real_ip,
+            "process_id": process_id,
+            "session": self._session_headers(flow),
+        })
+
+    def _capture_scan(self, job):
+        actor_id, _ = job["actor"]
+        owner_user_id = self._resolve_user_id(actor_id)
+        if not owner_user_id:
+            logger.info("no profile for discord %s yet — scan skipped", actor_id)
+            return
+        now = _now_iso()
+        rows = []
+        for raw in job.get("rows") or []:
+            mapped = parse_scan_row(raw)
+            if not mapped:
+                continue
+            rows.append({
+                "owner_user_id": owner_user_id,
+                "owner_discord_id": actor_id,
+                "last_scanned_at": now,
+                **mapped,
+            })
+        self.db.upsert_scan_targets(rows)
+
+    def _reveal(self, job):
+        owner = job.get("owner_user_id")
+        pid = job.get("player_id")
+        ip = job.get("real_ip")
+        reveal_id = job.get("reveal_id")
+        if ip and owner and pid:
+            try:
+                self.db.update_scan_real_ip(owner, str(pid), ip)
+            except Exception as exc:  # noqa: BLE001 - resolve the queue regardless
+                logger.warning("scan real_ip patch failed: %s", exc)
+        if reveal_id:
+            self.db.resolve_reveal(reveal_id, ip, "done" if ip else "failed")
+        # Auto-abort the hijacked bypass so the member's tap doesn't actually run a
+        # bypass against the reveal target — single lookup, never looped.
+        process_id = job.get("process_id")
+        if process_id is not None:
+            self._abort_process(job.get("session") or {}, process_id)
+
+    def _abort_process(self, session, process_id):
+        """POST /v1/process_delete signed by us, forwarding the iPhone's own auth
+        headers (api key / cookie / UA) so the server accepts the abort."""
+        body = json.dumps({"process_id": str(process_id)}, separators=(",", ":"))
+        sig, ts = _sign("POST", PROCESS_DELETE_PATH, body)
+        req = urllib.request.Request(
+            GAME_ORIGIN + PROCESS_DELETE_PATH, data=body.encode(), method="POST"
+        )
+        for k, v in (session or {}).items():
+            req.add_header(k, v)
+        req.add_header("Content-Type", "application/json")
+        req.add_header("X-Signature", sig)
+        req.add_header("X-Timestamp", ts)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read()
+        except Exception as exc:  # noqa: BLE001 - abort is best-effort
+            logger.warning("process_delete (auto-abort) failed: %s", exc)
+
+    @staticmethod
+    def _session_headers(flow):
+        """The iPhone request's auth headers, minus anything we must recompute
+        (signing) or that urllib sets itself (host/content-length/encoding)."""
+        skip = {"host", "content-length", "content-type", "accept-encoding",
+                "x-signature", "x-timestamp"}
+        out = {}
+        for k in flow.request.headers.keys():
+            if k.lower() not in skip:
+                out[k] = flow.request.headers[k]
+        return out
 
     def _capture_virus(self, job):
         actor_id, _actor_name = job["actor"]

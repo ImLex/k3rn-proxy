@@ -1,12 +1,13 @@
 import SwiftUI
 
 enum AppTab: CaseIterable {
-    case dashboard, targets, virus, search, k3rn, settings
+    case dashboard, targets, scan, virus, search, k3rn, settings
 
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
         case .targets: return "Targets"
+        case .scan: return "Scan"
         case .virus: return "Virus"
         case .search: return "Search"
         case .k3rn: return "Crews"
@@ -18,6 +19,7 @@ enum AppTab: CaseIterable {
         switch self {
         case .dashboard: return "square.grid.2x2.fill"
         case .targets: return "person.2.fill"
+        case .scan: return "dot.radiowaves.left.and.right"
         case .virus: return "ladybug.fill"
         case .search: return "magnifyingglass"
         case .k3rn: return "globe"
@@ -48,6 +50,8 @@ struct MainTabView: View {
         switch tab {
         case .dashboard: DashboardView(actor: actor)
         case .targets: TrackerView(actor: actor)
+        case .scan:
+            if let actor { ScanView(actor: actor) } else { SignInGate(feature: "the target scanner") }
         case .virus: VirusView(actor: actor)
         case .search:
             if let actor { SearchView(actor: actor) } else { SignInGate(feature: "the crew player database") }
