@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 final class ScanModel: ObservableObject {
@@ -88,6 +91,7 @@ struct ScanView: View {
     @State private var confirmReveal: ScanTarget?
     @State private var search = ""
     @State private var countText = ""
+    @State private var copiedID: String?
 
     init(actor: Actor) { _model = StateObject(wrappedValue: ScanModel(actor: actor)) }
 
@@ -223,20 +227,38 @@ struct ScanView: View {
 
     private var searchField: some View {
         HStack(spacing: Space.sm) {
-            Image(systemName: "magnifyingglass").foregroundColor(Theme.textFaint)
-            TextField("Search username, IP, or ID", text: $search)
-                .font(.system(size: 15)).foregroundColor(Theme.textPrimary)
-                .autocorrectionDisabled(true)
-                .textInputAutocapitalization(.never)
-            if !search.isEmpty {
-                Button { search = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundColor(Theme.textFaint)
+            HStack(spacing: Space.sm) {
+                Image(systemName: "magnifyingglass").foregroundColor(Theme.textFaint)
+                TextField("Search username, IP, or ID", text: $search)
+                    .font(.system(size: 15)).foregroundColor(Theme.textPrimary)
+                    .autocorrectionDisabled(true)
+                    .textInputAutocapitalization(.never)
+                if !search.isEmpty {
+                    Button { search = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundColor(Theme.textFaint)
+                    }
                 }
             }
+            .padding(.vertical, 10).padding(.horizontal, Space.md)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            // Reload without leaving the search — poll for a queued reveal's real IP
+            // to land after you've tapped Bypass in-game.
+            Button {
+                Task { await model.load(store: store) }
+            } label: {
+                Group {
+                    if isSyncing { ProgressView().tint(Theme.accent) }
+                    else { Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .semibold)) }
+                }
+                .frame(width: 44, height: 44)
+                .background(Theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .foregroundColor(Theme.accent)
+            }
+            .disabled(isSyncing)
         }
-        .padding(.vertical, 10).padding(.horizontal, Space.md)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var summary: some View {
@@ -263,13 +285,27 @@ struct ScanView: View {
                 if let rep = t.reputation { stat("REP", "\(rep)", Theme.textSecondary) }
             }
             HStack(spacing: Space.md) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(t.realIP ?? t.ip ?? "—")
-                        .font(.mono(13, weight: .semibold))
-                        .foregroundColor(t.realIP != nil ? Theme.crypto : Theme.textSecondary)
-                    Text(t.realIP != nil ? "real ip" : "masked ip")
-                        .font(.system(size: 10)).foregroundColor(Theme.textFaint)
+                Button {
+                    copyIP(t)
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(t.realIP ?? t.ip ?? "—")
+                                .font(.mono(13, weight: .semibold))
+                                .foregroundColor(t.realIP != nil ? Theme.crypto : Theme.textSecondary)
+                            if (t.realIP ?? t.ip) != nil {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 10)).foregroundColor(Theme.textFaint)
+                            }
+                        }
+                        Text(copiedID == t.id ? "copied!"
+                             : (t.realIP != nil ? "real ip" : "masked ip"))
+                            .font(.system(size: 10))
+                            .foregroundColor(copiedID == t.id ? Theme.crypto : Theme.textFaint)
+                    }
                 }
+                .buttonStyle(.plain)
+                .disabled((t.realIP ?? t.ip) == nil)
                 Spacer()
                 revealControl(t, reveal)
             }
@@ -295,6 +331,18 @@ struct ScanView: View {
                     .foregroundColor(model.hasPendingReveal ? Theme.textFaint : Theme.accent)
             }
             .disabled(model.hasPendingReveal)
+        }
+    }
+
+    private func copyIP(_ t: ScanTarget) {
+        guard let ip = t.realIP ?? t.ip, !ip.isEmpty else { return }
+        #if canImport(UIKit)
+        UIPasteboard.general.string = ip
+        #endif
+        copiedID = t.id
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if copiedID == t.id { copiedID = nil }
         }
     }
 
