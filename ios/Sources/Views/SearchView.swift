@@ -1,9 +1,26 @@
 import SwiftUI
 
+/// Client-side ordering for the Search results (server returns `updated_at` DESC).
+enum SearchSort: String, CaseIterable, Identifiable {
+    case updated, level, firewall, reputation, username
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .updated: return "Recently updated"
+        case .level: return "Level"
+        case .firewall: return "Firewall"
+        case .reputation: return "Reputation"
+        case .username: return "Username"
+        }
+    }
+}
+
 @MainActor
 final class SearchModel: ObservableObject {
     @Published var query = ""
     @Published var filters = PlayerFilters()
+    @Published var sort: SearchSort = .updated
     @Published private(set) var players: [Player] = []
     @Published private(set) var loading = false
     @Published private(set) var hasMore = false
@@ -66,6 +83,19 @@ final class SearchModel: ObservableObject {
         loading = false
     }
 
+    /// Loaded results in the member's chosen order (applied over the fetched set).
+    var sortedPlayers: [Player] {
+        switch sort {
+        case .updated:
+            return players.sorted { (Formatting.date(from: $0.updatedAt) ?? .distantPast)
+                > (Formatting.date(from: $1.updatedAt) ?? .distantPast) }
+        case .level:      return players.sorted { ($0.level ?? 0) > ($1.level ?? 0) }
+        case .firewall:   return players.sorted { ($0.firewall ?? 0) > ($1.firewall ?? 0) }
+        case .reputation: return players.sorted { ($0.reputation ?? 0) > ($1.reputation ?? 0) }
+        case .username:   return players.sorted { $0.username.localizedCaseInsensitiveCompare($1.username) == .orderedAscending }
+        }
+    }
+
     private func apply(_ new: [Player], hasMore: Bool, reset: Bool) {
         players = reset ? new : players + new
         self.hasMore = hasMore
@@ -123,13 +153,13 @@ struct SearchView: View {
                                    message: "Try a different search or adjust filters.")
                     }
 
-                    ForEach(model.players) { player in
+                    ForEach(model.sortedPlayers) { player in
                         NavigationLink {
                             PlayerDetailView(playerID: player.id, actor: actor)
                         } label: { PlayerRow(player: player) }
                         .buttonStyle(.plain)
                         .onAppear {
-                            if player.id == model.players.last?.id { Task { await model.loadMore() } }
+                            if player.id == model.sortedPlayers.last?.id { Task { await model.loadMore() } }
                         }
                     }
 
@@ -145,6 +175,15 @@ struct SearchView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button { showFilters = true } label: {
                         Image(systemName: "line.3.horizontal.decrease.circle")
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Picker("Sort by", selection: $model.sort) {
+                            ForEach(SearchSort.allCases) { s in Text(s.label).tag(s) }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down.circle")
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {

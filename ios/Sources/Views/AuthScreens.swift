@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     let error: SessionManager.LoginError?
+    var onBrowseOffline: (() -> Void)? = nil
     @EnvironmentObject private var session: SessionManager
     @State private var signingIn = false
 
@@ -43,7 +44,15 @@ struct LoginView: View {
             }
             .disabled(signingIn)
             .padding(.horizontal)
-            .padding(.bottom, 40)
+
+            if let onBrowseOffline {
+                Button("Continue offline") { onBrowseOffline() }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.bottom, 40)
+            } else {
+                Color.clear.frame(height: 1).padding(.bottom, 40)
+            }
         }
         .padding()
     }

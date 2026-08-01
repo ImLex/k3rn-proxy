@@ -5,7 +5,7 @@ import SwiftUI
 /// earners, the activity mix, and database counts. All derived from the private
 /// tracker (`captures` + theft history), not the shared crew DB.
 struct DashboardView: View {
-    let actor: Actor
+    let actor: Actor?
     @EnvironmentObject private var store: TrackerStore
     @AppStorage("user_level") private var userLevel = 0
     @AppStorage("active_game_pid") private var activePID = ""
@@ -80,6 +80,7 @@ struct DashboardView: View {
                     }
                 }
                 .padding()
+                .padding(.bottom, Space.xxl)
             }
             .background(Theme.background)
             .navigationTitle("Dashboard")
@@ -88,7 +89,8 @@ struct DashboardView: View {
         }
     }
 
-    private func reload() async { await store.refresh() }
+    /// Only hit the network when signed in; offline we show the local cache.
+    private func reload() async { if actor != nil { await store.refresh() } }
 
     // MARK: Sections
 

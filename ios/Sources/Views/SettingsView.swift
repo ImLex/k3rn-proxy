@@ -49,15 +49,28 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                     }
 
-                    Button(role: .destructive) {
-                        tracker.clear()
+                    Button {
                         Task { await session.signOut() }
                     } label: {
                         Text("Sign out").fontWeight(.semibold)
                             .frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .foregroundStyle(Theme.accent)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.5)))
+                    }
+
+                    Button(role: .destructive) {
+                        tracker.clear()
+                        Task { await session.signOut() }
+                    } label: {
+                        Text("Sign out & clear data").fontWeight(.semibold)
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
                             .foregroundStyle(.red)
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.red.opacity(0.5)))
                     }
+
+                    Text("Sign out keeps your tracked targets on this device for offline viewing. Clear data wipes them — use it on a shared phone.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding()
             }

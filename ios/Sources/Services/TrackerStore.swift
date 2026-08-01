@@ -66,6 +66,19 @@ final class TrackerStore: ObservableObject {
         save()
     }
 
+    /// Remove a target from this device's local cache. A later refresh may re-pull
+    /// it from the server inbox if it's still there — this hides it locally.
+    func delete(id: String) {
+        players.removeAll { $0.id == id }
+        save()
+    }
+
+    /// Remove several targets at once (multi-select delete).
+    func delete(ids: Set<String>) {
+        players.removeAll { ids.contains($0.id) }
+        save()
+    }
+
     /// Wipe local cache (used on sign-out so a shared device doesn't leak captures).
     func clear() {
         players = []

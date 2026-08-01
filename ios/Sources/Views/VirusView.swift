@@ -12,6 +12,10 @@ final class VirusModel: ObservableObject {
     var activeSpam: Int { spam.filter(\.active).count }
     var activeSiphon: Int { siphon.filter(\.active).count }
 
+    /// Offline (signed-out): no server session, so stop the initial spinner and
+    /// let the empty state show. Virus deployments aren't cached locally.
+    func setOffline() { loading = false }
+
     func load() async {
         errorMessage = nil
         do {
@@ -35,8 +39,10 @@ final class VirusModel: ObservableObject {
 /// mirroring the Android companion's Virus screen. Data is captured passively
 /// from the game's /v1/user_spam and /v1/user_siphon calls by the proxy.
 struct VirusView: View {
-    let actor: Actor
+    let actor: Actor?
     @StateObject private var model = VirusModel()
+    /// Section titles that are currently collapsed. Empty = both expanded (default).
+    @State private var collapsed: Set<String> = []
 
     var body: some View {
         NavigationView {
@@ -47,8 +53,10 @@ struct VirusView: View {
                     if model.spam.isEmpty && model.siphon.isEmpty && !model.loading {
                         EmptyState(
                             systemImage: "ladybug",
-                            title: "No deployments yet",
-                            message: "Open your Spam or Siphon screen in-game with the VPN on — your deployments and earnings show up here."
+                            title: actor == nil ? "Sign in to sync virus data" : "No deployments yet",
+                            message: actor == nil
+                                ? "Your spam and siphon deployments live in the crew database. Sign in with Discord to sync them."
+                                : "Open your Spam or Siphon screen in-game with the VPN on — your deployments and earnings show up here."
                         )
                     } else {
                         summary
@@ -60,9 +68,12 @@ struct VirusView: View {
             }
             .background(Theme.background)
             .navigationTitle("Virus")
-            .refreshable { await model.load() }
+            .refreshable { if actor != nil { await model.load() } }
         }
-        .task { if model.loading { await model.load() } }
+        .task {
+            if actor == nil { model.setOffline() }
+            else if model.loading { await model.load() }
+        }
     }
 
     private var summary: some View {
@@ -83,9 +94,27 @@ struct VirusView: View {
     @ViewBuilder
     private func section(title: String, rows: [VirusDeployment]) -> some View {
         if !rows.isEmpty {
+            let isCollapsed = collapsed.contains(title)
             VStack(alignment: .leading, spacing: Space.sm) {
-                SectionHeader(title: title)
-                ForEach(rows) { row($0) }
+                Button {
+                    withAnimation {
+                        if isCollapsed { collapsed.remove(title) } else { collapsed.insert(title) }
+                    }
+                } label: {
+                    HStack {
+                        SectionHeader(title: "\(title) (\(rows.count))")
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Theme.textFaint)
+                            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if !isCollapsed {
+                    ForEach(rows) { row($0) }
+                }
             }
         }
     }

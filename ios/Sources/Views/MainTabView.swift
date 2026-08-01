@@ -9,7 +9,7 @@ enum AppTab: CaseIterable {
         case .targets: return "Targets"
         case .virus: return "Virus"
         case .search: return "Search"
-        case .k3rn: return "K3RN"
+        case .k3rn: return "Crews"
         case .settings: return "Settings"
         }
     }
@@ -27,8 +27,10 @@ enum AppTab: CaseIterable {
 }
 
 struct MainTabView: View {
-    let profile: Profile
-    let actor: Actor
+    /// Both nil in signed-out "browse offline" mode — the personal tabs render
+    /// from the local cache and the database-backed tabs show a sign-in gate.
+    let profile: Profile?
+    let actor: Actor?
     @EnvironmentObject private var nicknames: NicknameStore
     @State private var tab: AppTab = .dashboard
 
@@ -38,7 +40,7 @@ struct MainTabView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 KTabBar(selection: $tab)
             }
-            .task { await nicknames.refreshIfStale() }
+            .task { if actor != nil { await nicknames.refreshIfStale() } }
     }
 
     @ViewBuilder
@@ -47,10 +49,55 @@ struct MainTabView: View {
         case .dashboard: DashboardView(actor: actor)
         case .targets: TrackerView(actor: actor)
         case .virus: VirusView(actor: actor)
-        case .search: SearchView(actor: actor)
-        case .k3rn: CrewsView(actor: actor)
-        case .settings: SettingsView(profile: profile, actor: actor)
+        case .search:
+            if let actor { SearchView(actor: actor) } else { SignInGate(feature: "the crew player database") }
+        case .k3rn:
+            if let actor { CrewsView(actor: actor) } else { SignInGate(feature: "crew rosters") }
+        case .settings:
+            if let profile, let actor { SettingsView(profile: profile, actor: actor) }
+            else { SignInGate(feature: "your account and device setup") }
         }
+    }
+}
+
+/// Shown on database-backed tabs while browsing offline. Only signing in unlocks
+/// them — the personal tracker stays usable without an account.
+struct SignInGate: View {
+    let feature: String
+    @EnvironmentObject private var session: SessionManager
+    @State private var signingIn = false
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer()
+            Image(systemName: "lock.shield")
+                .font(.system(size: 52)).foregroundStyle(Theme.accent)
+            Text("Sign in to access \(feature)")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center).padding(.horizontal, 28)
+            Text("Your tracked targets stay available offline. Discord sign-in only unlocks the shared crew database.")
+                .font(.system(size: 14)).foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center).padding(.horizontal, 28)
+            Spacer()
+            Button {
+                signingIn = true
+                Task { await session.signIn(); signingIn = false }
+            } label: {
+                HStack {
+                    if signingIn { ProgressView().tint(.black) }
+                    else { Image(systemName: "person.badge.key.fill") }
+                    Text("Sign in with Discord").fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                .background(Theme.accent).foregroundStyle(.black)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .disabled(signingIn)
+            .padding(.horizontal).padding(.bottom, 40)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.background)
     }
 }
 

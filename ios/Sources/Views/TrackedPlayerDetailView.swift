@@ -5,7 +5,7 @@ import SwiftUI
 /// explicit "Upload to crew DB" action (promotes it into the shared players table).
 struct TrackedPlayerDetailView: View {
     let trackedID: String
-    let actor: Actor
+    let actor: Actor?
     @EnvironmentObject private var store: TrackerStore
     @AppStorage("user_level") private var userLevel = 0
 
@@ -28,7 +28,7 @@ struct TrackedPlayerDetailView: View {
                     breakdownCard(a)
                     fields(p)
                     if !p.software.isEmpty { softwareSection(p) }
-                    uploadSection(p)
+                    if actor != nil { uploadSection(p) }
                 } else {
                     EmptyState(systemImage: "scope", title: "Target not found")
                 }
@@ -270,6 +270,7 @@ struct TrackedPlayerDetailView: View {
     private func iso(_ d: Date) -> String { Self.iso.string(from: d) }
 
     private func upload(_ p: TrackedPlayer) async {
+        guard let actor else { return }
         working = true
         defer { working = false }
         errorMessage = nil
