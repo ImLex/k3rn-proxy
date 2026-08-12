@@ -43,6 +43,16 @@ server=8.8.8.8
 # Pin HackEx to a stable Cloudflare edge that is inside the tunnel AllowedIPs so
 # only game traffic is captured. Update HACKEX_PIN if this edge ever goes away.
 address=/hackex.net/${HACKEX_PIN}
+# Strip AAAA (IPv6) from all replies. Without this the phone prefers IPv6 for
+# HackEx (a real Cloudflare v6 addr NOT in AllowedIPs) and the game traffic
+# bypasses the tunnel entirely — capture silently fails. Forcing IPv4-only keeps
+# HackEx on the pinned A record that routes through wg0.
+filter-AAAA
+# Strip SVCB(64)/HTTPS(65) records too. iOS connects via the HTTPS RR when present,
+# and that record carries its own IP hints (incl. IPv6) that bypass the A-record
+# pin. Filtering it forces fallback to the pinned A record. Both filters together
+# guarantee HackEx only ever resolves to HACKEX_PIN, which is inside AllowedIPs.
+filter-rr=64,65
 EOF
 systemctl restart dnsmasq
 systemctl enable dnsmasq >/dev/null

@@ -55,7 +55,14 @@ class Supabase:
         self.key = key
 
     def active_peers(self) -> dict[str, str]:
-        """{public_key: '10.8.0.x'} for every non-revoked registry row."""
+        """{public_key: '10.8.0.x'} for every non-revoked registry row.
+
+        An allowed-ip must be unique on the interface. If two non-revoked rows
+        (different public keys) claim the same wg_ip, `wg set` would hand the IP to
+        whichever peer we touch last and flip routing every reconcile. We drop such
+        an IP entirely: the colliding peers are left off wg0 so their handshake
+        fails loudly, instead of one member's traffic being silently misrouted to
+        another. The matching capture-side guard is in k3rn_capture_addon."""
         url = self.base + "wg_peers?select=public_key,wg_ip&revoked_at=is.null"
         req = urllib.request.Request(url)
         req.add_header("apikey", self.key)
@@ -63,11 +70,25 @@ class Supabase:
         req.add_header("Accept", "application/json")
         with urllib.request.urlopen(req, timeout=10) as resp:
             rows = json.loads(resp.read().decode() or "[]")
-        out: dict[str, str] = {}
+        ip_pubkeys: dict[str, set[str]] = {}
+        clean: list[tuple[str, str]] = []
         for r in rows:
             pk = (r.get("public_key") or "").strip()
             ip = _norm_ip(r.get("wg_ip") or "")
             if pk and ip:
+                clean.append((pk, ip))
+                ip_pubkeys.setdefault(ip, set()).add(pk)
+        collided = {ip for ip, pks in ip_pubkeys.items() if len(pks) > 1}
+        for ip in sorted(collided):
+            logger.error(
+                "wg_peers IP collision: %s claimed by %d active peers %s — leaving "
+                "them off %s until the duplicate's revoked_at is set",
+                ip, len(ip_pubkeys[ip]),
+                sorted(pk[:12] for pk in ip_pubkeys[ip]), IFACE,
+            )
+        out: dict[str, str] = {}
+        for pk, ip in clean:
+            if ip not in collided:
                 out[pk] = ip
         return out
 

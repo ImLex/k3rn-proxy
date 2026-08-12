@@ -141,6 +141,11 @@ QUEUE_MAX = 50_000
 # How often to re-read the wg_peers registry so self-onboarded crew mates start
 # being captured without a proxy restart.
 WG_MAP_REFRESH = int(os.environ.get("WG_MAP_REFRESH", "30"))
+# Throttle for the unmapped-peer warning: a member whose WG IP isn't in the map
+# (missing/revoked wg_peers row, or a stale in-process map) would otherwise be
+# dropped silently. Log once per IP per interval so a mis-mapped session that
+# fires many game calls doesn't flood the journal.
+UNKNOWN_PEER_LOG_INTERVAL = int(os.environ.get("UNKNOWN_PEER_LOG_INTERVAL", "300"))
 
 
 # --------------------------------------------------------------------------- #
@@ -188,16 +193,37 @@ class Supabase:
 
     def list_wg_peers(self):
         """Active registry rows -> {wg_ip: (discord_id, discord_id)}. Replaces the
-        hand-edited K3RN_WG_MAP file: crew mates self-onboard via provision-peer."""
+        hand-edited K3RN_WG_MAP file: crew mates self-onboard via provision-peer.
+
+        A wg_ip must map to exactly one member. If two non-revoked rows claim the
+        same IP for DIFFERENT discord ids (a re-provision that didn't revoke the old
+        row, or an allocator race), the IP is ambiguous: REST order isn't stable
+        across refreshes, so mapping it would attribute that IP's game traffic to
+        one member or the other at random — the member sees the WRONG game account.
+        We drop a collided IP from the map and log it loudly, so the colliding
+        member captures nothing (and surfaces as an unmapped peer) until the stale
+        row is revoked. A loud, safe failure beats silent cross-writing."""
         rows = self._req(
             "GET", "wg_peers?select=wg_ip,discord_id&revoked_at=is.null"
         )
-        out = {}
+        by_ip: dict[str, set[str]] = {}
         for r in rows or []:
             ip = str(r.get("wg_ip") or "").split("/", 1)[0].strip()
             disc = r.get("discord_id")
             if ip and disc:
-                out[ip] = (str(disc), str(disc))
+                by_ip.setdefault(ip, set()).add(str(disc))
+        out = {}
+        for ip, discs in by_ip.items():
+            if len(discs) > 1:
+                logger.error(
+                    "wg_peers IP collision: %s claimed by %d active peers %s — "
+                    "dropping it from the map (capture disabled for this IP until "
+                    "the stale row's revoked_at is set)",
+                    ip, len(discs), sorted(discs),
+                )
+                continue
+            disc = next(iter(discs))
+            out[ip] = (disc, disc)
         return out
 
     def get_profile_user_id(self, discord_id: str):
@@ -507,6 +533,9 @@ class K3rnCapture:
         # discord_id -> (deep_scan, scan_count), refreshed on the wg-map loop so
         # the request hook decides the boost without a live DB read per scan.
         self._scan_settings: dict[str, tuple[bool, int]] = {}
+        # wg_ip -> monotonic time it was last warned about as unmapped. Throttles
+        # the unknown-peer log so a mis-mapped session doesn't flood the journal.
+        self._unknown_ip_log: dict[str, float] = {}
 
     # -- mitmproxy lifecycle ------------------------------------------------ #
     def running(self):
@@ -560,8 +589,10 @@ class K3rnCapture:
         Everything else passes through untouched."""
         if not self.enabled or flow.request.pretty_host != GAME_HOST:
             return
-        actor = self.wg_map.get(self._client_ip(flow))
+        ip = self._client_ip(flow)
+        actor = self.wg_map.get(ip)
         if not actor:  # unknown WG peer -> not one of our members
+            self._note_unknown_peer(ip)
             return
         path = flow.request.path.split("?", 1)[0]
         if flow.request.method == "GET" and path == SCAN_PATH:
@@ -641,8 +672,10 @@ class K3rnCapture:
         if not (is_victim or virus_kind or is_wallet or is_loot
                 or is_own_profile or is_own_wallet or is_process):
             return  # not one of the endpoints we track
-        actor = self.wg_map.get(self._client_ip(flow))
+        ip = self._client_ip(flow)
+        actor = self.wg_map.get(ip)
         if not actor:  # unknown WG peer -> not one of our members
+            self._note_unknown_peer(ip)
             return
         data = self._json_body(flow)
         if data is None:
@@ -705,6 +738,24 @@ class K3rnCapture:
         cc = flow.client_conn
         peer = getattr(cc, "peername", None) or getattr(cc, "address", None)
         return peer[0] if peer else None
+
+    def _note_unknown_peer(self, ip):
+        """A GAME_HOST flow from a WG IP that isn't in the map — almost always a
+        crew member whose wg_peers row is missing/revoked, or a stale in-process
+        map after a re-provision. These used to drop silently (no write, no log),
+        which turned one member's stalled capture into a multi-hour hunt. Warn once
+        per IP per UNKNOWN_PEER_LOG_INTERVAL so a mis-mapped session doesn't flood."""
+        if not ip:
+            return
+        now = time.monotonic()
+        if now - self._unknown_ip_log.get(ip, 0.0) < UNKNOWN_PEER_LOG_INTERVAL:
+            return
+        self._unknown_ip_log[ip] = now
+        logger.warning(
+            "unmapped WG peer %s hit %s — capture dropped (IP not in wg_map; "
+            "check wg_peers row / revoked_at, or restart to rebuild the map)",
+            ip, GAME_HOST,
+        )
 
     @staticmethod
     def _json_body(flow):

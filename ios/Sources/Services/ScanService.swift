@@ -141,6 +141,19 @@ enum ScanService {
         } catch { throw AppError.map(error) }
     }
 
+    /// Wipe the member's entire Deep-scan pool: delete every scan_targets row and any
+    /// reveal history, so the list starts genuinely fresh. RLS scopes the delete to the
+    /// member; the owner filter mirrors resetReveal for safety.
+    static func clearAllTargets(actor: Actor) async throws {
+        let owner = try await ownerUserID()
+        do {
+            try await client.from("scan_targets")
+                .delete().eq("owner_user_id", value: owner).execute()
+            try await client.from("reveal_queue")
+                .delete().eq("owner_user_id", value: owner).execute()
+        } catch { throw AppError.map(error) }
+    }
+
     private static let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
     }()

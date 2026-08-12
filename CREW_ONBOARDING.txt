@@ -1,0 +1,172 @@
+====================================================================
+ K3RN INTEL - CREW ONBOARDING (iPhone, fresh setup)
+====================================================================
+
+This gets your phone syncing HackEx captures to the crew tracker.
+It's a one-time setup, ~15 minutes. After this it just works, on
+both Wi-Fi and cellular.
+
+You will do it in 5 stages:
+  1. Install the K3RN Intel app
+  2. Sign in and get approved
+  3. Install WireGuard + import your personal tunnel
+  4. Install and TRUST the security certificate  <-- most important
+  5. Turn it on and confirm it works
+
+--------------------------------------------------------------------
+ WHAT YOU NEED
+--------------------------------------------------------------------
+- An iPhone (iOS 15 or newer)
+- The K3RN Intel app file (.ipa) - link in the crew channel
+- The certificate file: k3rn-ca.pem - attached in the crew channel
+- A free "WireGuard" app from the App Store
+- 5 minutes of patience for the certificate step
+
+
+--------------------------------------------------------------------
+ BEFORE YOU START - ENABLE DEVELOPER MODE  (iOS 16 and newer)
+--------------------------------------------------------------------
+On iOS 16+ a sideloaded app WILL NOT OPEN until Developer Mode is
+on. Turn it on now so Stage 1 goes smoothly.
+
+  1. Settings > Privacy & Security > scroll down > Developer Mode.
+  2. Toggle it ON. The phone will ask to restart - let it.
+  3. After it boots, unlock and tap "Turn On" on the popup, then
+     enter your passcode.
+
+  If you don't see "Developer Mode" in Privacy & Security, you're
+  on iOS 15 - skip this, you don't need it.
+
+
+====================================================================
+ STAGE 1 - INSTALL THE K3RN INTEL APP
+====================================================================
+The app isn't on the App Store, so it's "sideloaded".
+
+Easiest method (Sideloadly):
+  1. On a computer, download Sideloadly (https://sideloadly.io).
+  2. Plug your iPhone into the computer with a cable.
+  3. Open Sideloadly, drag in the K3RN Intel .ipa file.
+  4. Enter your Apple ID (used only to sign the app onto your phone).
+  5. Click Start. When it finishes, the app appears on your phone.
+  6. On the phone: Settings > General > VPN & Device Management >
+     tap your Apple ID under "Developer App" > Trust.
+
+  NOTE: With a free Apple ID the app stops opening after 7 days.
+  Just re-run Sideloadly to refresh it. (AltStore can auto-refresh
+  if you'd rather set that up once.)
+
+
+====================================================================
+ STAGE 2 - SIGN IN AND GET APPROVED
+====================================================================
+  1. Open the K3RN Intel app.
+  2. Sign in with Discord and authorize.
+  3. Your account starts as "pending". Ping an admin in the crew
+     channel to approve you.
+  4. Once approved, you're a member. (You must sign in at least
+     once before captures can be linked to you.)
+
+
+====================================================================
+ STAGE 3 - INSTALL WIREGUARD + IMPORT YOUR TUNNEL
+====================================================================
+The tunnel is your own private, personal connection - it only
+routes HackEx traffic, nothing else on your phone.
+
+  1. Install "WireGuard" (free) from the App Store.
+  2. Back in K3RN Intel: go to the Settings tab >
+     "Connect device (VPN)".
+  3. Wait a couple seconds - it provisions YOUR tunnel.
+  4. Tap the big "Push to WireGuard" button. This hands your tunnel
+     straight to the WireGuard app.
+  5. If iOS asks which app to open it in, pick "WireGuard".
+  6. WireGuard opens ready to add the tunnel - give it any name
+     (e.g. "K3RN") and save.
+
+  (Prefer to scan a QR code instead? In K3RN Intel the tunnel screen
+   shows a QR under "Prefer to scan?". In WireGuard tap "+" (top
+   right) > "Create from QR code" and scan it. Either way is fine.)
+
+
+====================================================================
+ STAGE 4 - INSTALL AND TRUST THE CERTIFICATE  (DON'T SKIP)
+====================================================================
+This lets the crew server read HackEx traffic. Without BOTH the
+install AND the trust toggle, nothing will capture.
+
+IMPORTANT: open the certificate file in SAFARI or the Files app -
+NOT inside Discord's built-in browser (that won't work).
+
+  A) GET THE FILE ONTO YOUR PHONE
+     - Download k3rn-ca.pem from the crew channel.
+     - If it opened inside Discord, tap Share > Save to Files,
+       then open it from the Files app.
+     - You should see a popup: "Profile Downloaded".
+
+  B) INSTALL THE PROFILE
+     - Settings > General > VPN & Device Management.
+     - Under "Downloaded Profile" tap "mitmproxy" > Install
+       (top right) > enter your passcode > Install again.
+
+  C) TURN ON TRUST  (this is the step everyone forgets)
+     - Settings > General > About > scroll to the BOTTOM >
+       "Certificate Trust Settings".
+     - Toggle "mitmproxy" ON. Confirm.
+
+  If you ever can't find the certificate: it does NOT capture until
+  the trust toggle in step C is ON. Double-check that first.
+
+
+====================================================================
+ STAGE 5 - TURN IT ON AND CONFIRM
+====================================================================
+  1. Open the WireGuard app and toggle your "K3RN" tunnel ON
+     (the switch turns blue/green). You'll see a small "VPN" icon
+     at the top of your screen - that's normal.
+  2. FULLY CLOSE HackEx if it's already open: swipe up from the
+     bottom and swipe HackEx away. (This forces a fresh connection.)
+  3. Open HackEx and log in / open your profile.
+  4. Open K3RN Intel > Settings tab > pull down to refresh.
+     Your in-game username, level, and stats should appear under
+     "Game account". If they do - you're fully set up.
+
+From now on, whenever the tunnel is ON, the targets you open in
+HackEx sync to your personal tracker automatically - at home on
+Wi-Fi or out on cellular, no difference.
+
+
+====================================================================
+ EVERYDAY USE
+====================================================================
+- Tunnel ON  = captures sync (leave it on while you play).
+- Tunnel OFF = normal phone, nothing captured.
+- You can leave the tunnel on all the time; it only touches HackEx
+  traffic, so it won't slow down or route the rest of your phone.
+
+
+====================================================================
+ TROUBLESHOOTING
+====================================================================
+"My internet stopped working."
+   You may have an old manual Wi-Fi proxy set. Settings > Wi-Fi >
+   tap the (i) on your network > Configure Proxy > Off. We don't
+   use a manual proxy anymore - only the tunnel.
+
+"Nothing shows up in the app after playing."
+   - Is the WireGuard tunnel actually ON? (VPN icon at the top.)
+   - Did you do BOTH parts of Stage 4 - install AND the trust
+     toggle in Certificate Trust Settings?
+   - Fully close HackEx (swipe it away) and reopen it, so it makes
+     a fresh connection.
+   - Still nothing? Toggle Airplane Mode on for 10s, off, make sure
+     the tunnel reconnects, then reopen HackEx.
+
+"The app won't open / says it's untrusted."
+   Free-signed apps expire after 7 days - re-run Sideloadly, or
+   re-trust it under Settings > General > VPN & Device Management.
+
+"HackEx logs me out or acts weird with the tunnel on."
+   Turn the tunnel off, confirm the game works, then back on. If it
+   persists, ping an admin - the server's HackEx pin may need a
+   refresh.

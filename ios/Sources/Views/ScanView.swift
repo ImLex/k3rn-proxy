@@ -6,12 +6,11 @@ import UIKit
 @MainActor
 final class ScanModel: ObservableObject {
     @Published var deepScan = false
-    @Published var scanCount = 5000
+    @Published var scanCount = 10
     @Published private(set) var reveals: [String: RevealRequest] = [:]  // player_id -> row
     @Published var errorMessage: String?
     @Published private(set) var loading = true
     @Published var savingToggle = false
-    @Published var savingCount = false
 
     let actor: Actor
     init(actor: Actor) { self.actor = actor }
@@ -36,7 +35,10 @@ final class ScanModel: ObservableObject {
         do {
             let s = try await settings
             deepScan = s.deepScan
-            scanCount = s.scanCount
+            scanCount = 10
+            if s.scanCount != 10 {
+                try? await ScanService.setScanCount(10, actor: actor)  // fixed value; override any stale DB row
+            }
             reveals = Dictionary(try await r.map { ($0.playerID, $0) },
                                  uniquingKeysWith: { first, _ in first })
         } catch {
@@ -58,16 +60,15 @@ final class ScanModel: ObservableObject {
         savingToggle = false
     }
 
-    func setScanCount(_ count: Int) async {
-        savingCount = true
+    func clearPool(store: ScanStore) async {
         errorMessage = nil
         do {
-            try await ScanService.setScanCount(count, actor: actor)
-            scanCount = count
+            try await ScanService.clearAllTargets(actor: actor)
+            store.clear()
+            reveals = [:]
         } catch {
             errorMessage = AppError.map(error).errorDescription
         }
-        savingCount = false
     }
 
     func queueReveal(_ playerID: String, store: ScanStore) async {
@@ -101,7 +102,7 @@ struct ScanView: View {
     @State private var confirmReveal: ScanTarget?
     @State private var confirmReset: ScanTarget?
     @State private var search = ""
-    @State private var countText = ""
+    @State private var confirmClear = false
     @State private var copiedID: String?
 
     init(actor: Actor) { _model = StateObject(wrappedValue: ScanModel(actor: actor)) }
@@ -154,8 +155,7 @@ struct ScanView: View {
             .refreshable { await model.load(store: store) }
         }
         .task {
-            countText = "\(model.scanCount)"
-            if model.loading { await model.load(store: store); countText = "\(model.scanCount)" }
+            if model.loading { await model.load(store: store) }
         }
         .confirmationDialog(
             "Reveal real IP?",
@@ -193,6 +193,19 @@ struct ScanView: View {
         } message: { _ in
             Text("Clears the stored real IP for this target so you can queue a fresh reveal. The old reveal history for this target is removed.")
         }
+        .confirmationDialog(
+            "Clear the whole pool?",
+            isPresented: $confirmClear,
+            titleVisibility: .visible
+        ) {
+            Button("Clear pool", role: .destructive) {
+                Task { await model.clearPool(store: store) }
+                confirmClear = false
+            }
+            Button("Cancel", role: .cancel) { confirmClear = false }
+        } message: {
+            Text("Permanently deletes every scanned target and all reveal history from the server so you can start a fresh scan. This can't be undone.")
+        }
     }
 
     private var toggleCard: some View {
@@ -217,27 +230,10 @@ struct ScanView: View {
                 Text("Scan amount").font(.system(size: 14, weight: .medium))
                     .foregroundColor(Theme.textPrimary)
                 Spacer()
-                TextField("5000", text: $countText)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.mono(15, weight: .semibold))
-                    .foregroundColor(Theme.textPrimary)
-                    .frame(width: 80)
-                    .padding(.vertical, 6).padding(.horizontal, 8)
-                    .background(Theme.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                Button {
-                    let n = max(1, Int(countText.filter(\.isNumber)) ?? model.scanCount)
-                    countText = "\(n)"
-                    Task { await model.setScanCount(n) }
-                } label: {
-                    if model.savingCount { ProgressView().tint(Theme.accent) }
-                    else { Text("Set").font(.system(size: 14, weight: .semibold)) }
-                }
-                .disabled(model.savingCount || countText.filter(\.isNumber).isEmpty)
-                .foregroundColor(Theme.accent)
+                Text("10").font(.mono(15, weight: .semibold))
+                    .foregroundColor(Theme.textFaint)
             }
-            Text("How many players the next boosted scan captures. The addon reads this on its next refresh.")
+            Text("Fixed at 10 players per boosted scan.")
                 .font(.system(size: 12)).foregroundColor(Theme.textFaint)
         }
         .cardStyle(padding: Space.md)
@@ -298,6 +294,17 @@ struct ScanView: View {
                      value: "\(store.targets.filter { $0.realIP != nil }.count)",
                      color: Theme.crypto,
                      hint: model.hasPendingReveal ? "1 pending" : "real IPs")
+            Spacer()
+            Button {
+                confirmClear = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "trash").font(.system(size: 12, weight: .semibold))
+                    Text("Clear").font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(Theme.danger)
+            }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
