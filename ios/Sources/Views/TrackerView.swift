@@ -227,14 +227,14 @@ struct TargetFilterSheet: View {
                 }
                 Section("Software") {
                     TextField("Min software level", text: $minSoftwareLevel).keyboardType(.numberPad)
-                    ForEach(HackExSoftware.catalog, id: \.self) { name in
+                    ForEach(HackExSoftware.catalog) { entry in
                         Button {
-                            if software.contains(name) { software.remove(name) } else { software.insert(name) }
+                            if software.contains(entry.name) { software.remove(entry.name) } else { software.insert(entry.name) }
                         } label: {
                             HStack {
-                                Text(name).foregroundColor(Theme.textPrimary)
+                                Text(entry.label).foregroundColor(Theme.textPrimary)
                                 Spacer()
-                                if software.contains(name) {
+                                if software.contains(entry.name) {
                                     Image(systemName: "checkmark").foregroundColor(Theme.accent)
                                 }
                             }
