@@ -40,7 +40,7 @@ Run:
 Response shape (from HE2Bot: mam/*):
     /v1/user_victim_access?victim_user_id=N -> {..identity.., "user_software": [
       {software_type_id, software_level, software_id}, ... ]}
-      identity: id/user_id, level, reputation, fw_level, username, ip, clan, ...
+      identity: id/user_id, level, reputation, fw_level, username, ip, crew_tag, ...
 """
 
 import datetime
@@ -862,7 +862,7 @@ class K3rnCapture:
         merged = {**ident, **{k: data[k] for k in
                               ("id", "user_id", "username", "ip", "level",
                                "reputation", "fw_level", "firewall_level",
-                               "clan", "crew")
+                               "crew_tag", "clan", "crew")
                               if k in data}}
         if merged.get("id") is None and merged.get("user_id") is None and vid:
             merged["user_id"] = vid
@@ -880,7 +880,10 @@ class K3rnCapture:
             "level": parsed["level"],
             "firewall": parsed["firewall"] if parsed["firewall"] is not None else fw_from_sw,
             "reputation": parsed["reputation"],
-            "crew": _clean(merged.get("clan") or merged.get("crew")),
+            # The game sends the crew tag as `crew_tag` ("TRSEC"); clan/crew are
+            # older payload spellings kept as fallbacks.
+            "crew": _clean(merged.get("crew_tag") or merged.get("clan")
+                           or merged.get("crew")),
             "software": software,
             "captured_at": _now_iso(),
         }

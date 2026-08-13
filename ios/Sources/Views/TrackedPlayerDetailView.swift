@@ -207,6 +207,10 @@ struct TrackedPlayerDetailView: View {
                 Text(p.playerID ?? "—").font(.mono(14)).foregroundStyle(Theme.textPrimary)
             }
             DetailRow(label: "Current IP") { CopyableIP(ip: p.currentIP) }
+            DetailRow(label: "Crew") {
+                Text(p.crew?.isEmpty == false ? p.crew! : "—")
+                    .font(.system(size: 13)).foregroundStyle(Theme.textPrimary)
+            }
             DetailRow(label: "Level") { valueText(p.level) }
             DetailRow(label: "Firewall") { valueText(p.firewall) }
             DetailRow(label: "Reputation") { valueText(p.reputation) }

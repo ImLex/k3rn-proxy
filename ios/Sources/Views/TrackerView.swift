@@ -162,6 +162,9 @@ struct TrackerView: View {
                     if let lvl = p.level {
                         Text("Lv \(lvl)").font(.mono(12)).foregroundStyle(Theme.textSecondary)
                     }
+                    if let crew = p.crew, !crew.isEmpty {
+                        TagPill(label: crew, color: Theme.textSecondary)
+                    }
                     if p.isUploaded {
                         Image(systemName: "checkmark.icloud")
                             .font(.system(size: 11)).foregroundStyle(Theme.accent)
