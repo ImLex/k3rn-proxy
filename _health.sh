@@ -10,6 +10,8 @@ else
 fi
 echo "--- writer line for this pid ---"
 sudo journalctl -u k3rn-proxy.service --no-pager | grep -a "mitmdump\[$P\]" | grep -a "writer started" | tail -1
+echo "--- addon revision for this pid ---"
+sudo journalctl -u k3rn-proxy.service --no-pager | grep -a "mitmdump\[$P\]" | grep -ao "rev [0-9-]*" | tail -1
 echo "--- OFF line for this pid (should be empty) ---"
 sudo journalctl -u k3rn-proxy.service --no-pager | grep -a "mitmdump\[$P\]" | grep -a "capture is OFF" | tail -1
 echo "END"
