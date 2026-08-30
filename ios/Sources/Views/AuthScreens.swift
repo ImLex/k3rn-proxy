@@ -5,6 +5,7 @@ struct LoginView: View {
     var onBrowseOffline: (() -> Void)? = nil
     @EnvironmentObject private var session: SessionManager
     @State private var signingIn = false
+    @State private var showEmailSignIn = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -45,6 +46,12 @@ struct LoginView: View {
             .disabled(signingIn)
             .padding(.horizontal)
 
+            OrDivider().padding(.horizontal)
+
+            Button("Sign in with email") { showEmailSignIn = true }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.accent)
+
             if let onBrowseOffline {
                 Button("Continue offline") { onBrowseOffline() }
                     .font(.system(size: 15, weight: .medium))
@@ -55,6 +62,20 @@ struct LoginView: View {
             }
         }
         .padding()
+        .sheet(isPresented: $showEmailSignIn) {
+            EmailSignInView().environmentObject(session)
+        }
+    }
+}
+
+/// "or" rule separating the primary Discord button from the email fallback.
+struct OrDivider: View {
+    var body: some View {
+        HStack(spacing: Space.md) {
+            Rectangle().fill(Theme.border).frame(height: 1)
+            Text("or").font(.caption).foregroundStyle(Theme.textFaint)
+            Rectangle().fill(Theme.border).frame(height: 1)
+        }
     }
 }
 

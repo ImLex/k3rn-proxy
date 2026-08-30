@@ -24,4 +24,9 @@ enum AppConfig {
 
     /// Custom scheme redirect registered in Info.plist + Supabase Auth.
     static let authRedirect = URL(string: "k3rnintel://auth-callback")!
+
+    static func isAuthCallback(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == authRedirect.scheme
+            && url.host?.lowercased() == authRedirect.host
+    }
 }

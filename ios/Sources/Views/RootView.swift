@@ -26,6 +26,8 @@ struct RootView: View {
                 PendingView()
             case .disabled:
                 DisabledView()
+            case .mustSetPassword:
+                SetPasswordView()
             case let .ready(profile, actor):
                 MainTabView(profile: profile, actor: actor)
             }
