@@ -197,7 +197,7 @@ struct PasswordResetRequestView: View {
 
     private var requestPhase: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
-            Text("We'll email you a 6-digit code. Enter it on the next screen to choose a password.")
+            Text("We'll email you a verification code. Enter it on the next screen to choose a password.")
                 .font(.bodyM)
                 .foregroundColor(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -224,8 +224,10 @@ struct PasswordResetRequestView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             AuthField(
-                title: "6-digit code",
-                placeholder: "123456",
+                // Length is a server setting (Supabase allows 6–10), so never name
+                // a digit count here — only gate on the shortest it can be.
+                title: "Verification code",
+                placeholder: "Code from the email",
                 text: $code,
                 keyboard: .numberPad,
                 submitLabel: .go,

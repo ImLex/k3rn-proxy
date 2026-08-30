@@ -166,7 +166,7 @@ final class SessionManager: ObservableObject {
         return nil
     }
 
-    /// Sends a recovery email containing both a 6-digit code and a deep link.
+    /// Sends a recovery email containing both a verification code and a deep link.
     /// Returns `nil` for an unknown address too — GoTrue answers 200 either way and
     /// the UI must not leak whether an account exists.
     func sendPasswordReset(to email: String) async -> EmailAuthError? {
@@ -181,7 +181,7 @@ final class SessionManager: ObservableObject {
         }
     }
 
-    /// Redeems the 6-digit code from the recovery email. Preferred over the deep
+    /// Redeems the verification code from the recovery email. Preferred over the deep
     /// link: no PKCE device binding, no cold-launch race, and immune to mail clients
     /// that prefetch the one-time link.
     func redeemRecoveryCode(email: String, code: String) async -> EmailAuthError? {
