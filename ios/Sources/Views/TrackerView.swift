@@ -34,6 +34,11 @@ struct TrackerView: View {
         }
     }
 
+    /// Select-all works on what's on screen, not on every stored target — with a
+    /// filter active, selecting rows you can't see would be a trap.
+    private var visibleIDs: Set<String> { Set(visible.map(\.player.id)) }
+    private var allSelected: Bool { !visible.isEmpty && selection.isSuperset(of: visibleIDs) }
+
     var body: some View {
         NavigationView {
             // The bar is a sibling of the list, not a `.safeAreaInset`: MainTabView
@@ -145,7 +150,7 @@ struct TrackerView: View {
                 withAnimation { editMode = editMode == .active ? .inactive : .active }
                 selection.removeAll()
             } label: {
-                Text(editMode == .active ? "Done" : "Edit")
+                Text(editMode == .active ? "Done" : "Select")
             }
         }
         ToolbarItem(placement: .navigationBarTrailing) {
@@ -180,10 +185,23 @@ struct TrackerView: View {
             }
             HStack(spacing: 0) {
                 Button {
+                    selection = allSelected ? [] : visibleIDs
+                } label: {
+                    Text(allSelected ? "Deselect All" : "Select All")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Space.md)
+                }
+                .disabled(visible.isEmpty || store.uploadProgress != nil)
+                .foregroundStyle(actionColor(active: !visible.isEmpty, color: Theme.textSecondary))
+
+                Divider().frame(height: 24)
+
+                Button {
                     if !selection.isEmpty && actor != nil { confirmBulkUpload = true }
                 } label: {
                     Text(selection.isEmpty ? "Upload" : "Upload \(selection.count)")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, Space.md)
                 }
@@ -197,7 +215,7 @@ struct TrackerView: View {
                     if !selection.isEmpty { confirmBulkDelete = true }
                 } label: {
                     Text(selection.isEmpty ? "Delete" : "Delete \(selection.count)")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, Space.md)
                 }
