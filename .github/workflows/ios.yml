@@ -30,7 +30,9 @@ jobs:
         run: brew install xcodegen
 
       - name: Write Secrets.xcconfig
+        id: cfg
         run: |
+          echo "sha=${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
           mkdir -p Config
           cat > Config/Secrets.xcconfig <<EOF
           SUPABASE_HOST = ${SUPABASE_HOST}
@@ -69,6 +71,8 @@ jobs:
       - name: Upload .ipa artifact
         uses: actions/upload-artifact@v4
         with:
-          name: K3RNIntel-unsigned-ipa-${{ github.ref_name }}-${{ github.run_number }}
+          # github.ref_name is "<pr>/merge" on pull_request and slashes are
+          # rejected. The sha also matches what Settings shows on-device.
+          name: K3RNIntel-unsigned-ipa-${{ steps.cfg.outputs.sha }}
           path: ios/build/K3RNIntel-unsigned.ipa
           if-no-files-found: error
