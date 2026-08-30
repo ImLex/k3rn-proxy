@@ -22,7 +22,10 @@ targets:
     platform: iOS
     sources:
       - path: Sources
-    resources:
+      # XcodeGen has no target-level `resources:` key — it used to be declared
+      # there, was silently dropped, and the app shipped with no Assets.car and
+      # therefore no icon. The .xcassets extension puts it in the resources
+      # build phase on its own.
       - path: Resources/Assets.xcassets
     dependencies:
       - package: Supabase
