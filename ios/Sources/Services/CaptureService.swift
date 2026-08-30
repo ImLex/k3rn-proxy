@@ -26,6 +26,19 @@ enum CaptureService {
         } catch { throw AppError.map(error) }
     }
 
+    /// Server-side delete for the tracker. Without this a deleted row comes back
+    /// on the next refresh (server wins in `TrackerStore.merge`). RLS `cap_own`
+    /// (0007a) scopes the delete to the member's own rows.
+    static func delete(ids: [String]) async throws {
+        guard !ids.isEmpty else { return }
+        do {
+            try await client.from("captures")
+                .delete()
+                .in("id", values: ids)
+                .execute()
+        } catch { throw AppError.map(error) }
+    }
+
     private static let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
     }()

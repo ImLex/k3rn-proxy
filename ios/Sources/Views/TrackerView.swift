@@ -14,6 +14,8 @@ struct TrackerView: View {
     @State private var selection = Set<String>()
     @State private var editMode: EditMode = .inactive
     @State private var confirmBulkDelete = false
+    @State private var confirmBulkUpload = false
+    @State private var uploadResultMessage: String?
 
     /// Players paired with their live assessment, after filtering + sorting.
     private var visible: [(player: TrackedPlayer, assessment: TargetAssessment)] {
@@ -34,7 +36,10 @@ struct TrackerView: View {
 
     var body: some View {
         NavigationView {
-            Group {
+            // The bar is a sibling of the list, not a `.safeAreaInset`: MainTabView
+            // already claims the bottom inset for KTabBar, and a nested inset there
+            // never gets laid out.
+            VStack(spacing: 0) {
                 if store.players.isEmpty {
                     ScrollView {
                         if let e = store.lastError { ErrorBanner(message: e).padding(.horizontal) }
@@ -48,21 +53,38 @@ struct TrackerView: View {
                 } else {
                     listContent
                 }
+                if editMode == .active { editActionBar }
             }
             .background(Theme.background)
             .navigationTitle("Targets")
             .toolbar { toolbarContent }
             .environment(\.editMode, $editMode)
-            .safeAreaInset(edge: .bottom) { if editMode == .active { deleteBar } }
             .sheet(isPresented: $showFilters) {
                 TargetFilterSheet(filters: $filters)
             }
             .confirmationDialog("Delete \(selection.count) target\(selection.count == 1 ? "" : "s")?",
                                 isPresented: $confirmBulkDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
-                    store.delete(ids: selection)
-                    selection.removeAll()
-                    editMode = .inactive
+                    let ids = selection
+                    Task {
+                        await store.delete(ids: ids)
+                        selection.removeAll()
+                        editMode = .inactive
+                    }
+                }
+            }
+            .confirmationDialog("Upload \(selection.count) target\(selection.count == 1 ? "" : "s") to crew DB?",
+                                isPresented: $confirmBulkUpload, titleVisibility: .visible) {
+                Button("Upload") {
+                    guard let actor else { return }
+                    let ids = selection
+                    Task {
+                        let r = await store.uploadMany(ids: ids, actor: actor)
+                        selection.removeAll()
+                        editMode = .inactive
+                        uploadResultMessage = "Uploaded \(r.ok)"
+                            + (r.failed > 0 ? ", \(r.failed) failed" : "")
+                    }
                 }
             }
         }
@@ -71,6 +93,11 @@ struct TrackerView: View {
 
     private var listContent: some View {
         List(selection: $selection) {
+            if let msg = uploadResultMessage {
+                InfoBanner(message: msg) { uploadResultMessage = nil }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
             if let e = store.lastError {
                 ErrorBanner(message: e)
                     .listRowInsets(EdgeInsets())
@@ -85,7 +112,10 @@ struct TrackerView: View {
                 } label: { row(item.player, item.assessment) }
                 .listRowBackground(Theme.surface)
                 .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) { store.delete(id: item.player.id) } label: {
+                    Button(role: .destructive) {
+                        let id = item.player.id
+                        Task { await store.delete(id: id) }
+                    } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 }
@@ -135,18 +165,54 @@ struct TrackerView: View {
         }
     }
 
-    private var deleteBar: some View {
-        Button(role: .destructive) {
-            if !selection.isEmpty { confirmBulkDelete = true }
-        } label: {
-            Text(selection.isEmpty ? "Select targets to delete" : "Delete \(selection.count)")
-                .font(.system(size: 16, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Space.md)
+    private var editActionBar: some View {
+        VStack(spacing: 0) {
+            if let p = store.uploadProgress {
+                HStack(spacing: Space.sm) {
+                    ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                        .progressViewStyle(.linear)
+                    Text("\(p.done) / \(p.total)")
+                        .font(.mono(12))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.xs)
+            }
+            HStack(spacing: 0) {
+                Button {
+                    if !selection.isEmpty && actor != nil { confirmBulkUpload = true }
+                } label: {
+                    Text(selection.isEmpty ? "Upload" : "Upload \(selection.count)")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Space.md)
+                }
+                .disabled(selection.isEmpty || actor == nil || store.uploadProgress != nil)
+                .foregroundStyle(actionColor(active: !selection.isEmpty && actor != nil,
+                                             color: Theme.accent))
+
+                Divider().frame(height: 24)
+
+                Button(role: .destructive) {
+                    if !selection.isEmpty { confirmBulkDelete = true }
+                } label: {
+                    Text(selection.isEmpty ? "Delete" : "Delete \(selection.count)")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Space.md)
+                }
+                .disabled(selection.isEmpty || store.uploadProgress != nil)
+                .foregroundStyle(actionColor(active: !selection.isEmpty, color: Theme.danger))
+            }
         }
-        .disabled(selection.isEmpty)
-        .foregroundStyle(selection.isEmpty ? Theme.textFaint : Theme.danger)
-        .background(Theme.surface.ignoresSafeArea(edges: .bottom))
+        .background(
+            Theme.surface
+                .overlay(Rectangle().fill(Theme.border).frame(height: 1), alignment: .top)
+        )
+    }
+
+    private func actionColor(active: Bool, color: Color) -> Color {
+        active ? color : Theme.textFaint
     }
 
     private func row(_ p: TrackedPlayer, _ a: TargetAssessment) -> some View {
