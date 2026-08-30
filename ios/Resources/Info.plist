@@ -58,5 +58,7 @@
   <string>$(DISCORD_OFFICER_ROLE_ID)</string>
   <key>DISCORD_K3RN_ROLE_ID</key>
   <string>$(DISCORD_K3RN_ROLE_ID)</string>
+  <key>GIT_SHA</key>
+  <string>$(GIT_SHA)</string>
 </dict>
 </plist>

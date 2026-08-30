@@ -73,6 +73,10 @@ struct SettingsView: View {
                     Text("Sign out keeps your tracked targets on this device for offline viewing. Clear data wipes them — use it on a shared phone.")
                         .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text("build \(AppConfig.buildRevision)")
+                        .font(.mono(11)).foregroundStyle(Theme.textFaint)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding()
             }
