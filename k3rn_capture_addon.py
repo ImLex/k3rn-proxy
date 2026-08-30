@@ -60,6 +60,11 @@ from pathlib import Path
 
 logger = logging.getLogger("k3rn_capture")
 
+# Logged at startup so `_health.sh` can tell which copy of this file the Oracle
+# box is actually running — it is deployed by hand, and a stale copy silently
+# behaves like the bug it was meant to fix. Bump when capture behaviour changes.
+ADDON_REVISION = "2026-08-30"
+
 GAME_HOST = "api2.hackex.net"
 GAME_ORIGIN = "https://" + GAME_HOST
 # The HackEx app-bundle HMAC secret. Stable through v1.4.2; overridable via env in
@@ -561,7 +566,8 @@ class K3rnCapture:
                 target=self._refresh_wg_map, name="k3rn-wgmap", daemon=True
             ).start()
             logger.info(
-                "K3RN capture inbox writer started (%d WG peers mapped)", len(self.wg_map)
+                "K3RN capture inbox writer started (rev %s, %d WG peers mapped)",
+                ADDON_REVISION, len(self.wg_map)
             )
 
     def _refresh_wg_map(self):
@@ -845,7 +851,10 @@ class K3rnCapture:
                 else:
                     self._capture(job)
             except Exception as exc:  # noqa: BLE001 - never kill the writer loop
-                logger.error("capture write failed: %s", exc)
+                logger.error(
+                    "capture write failed (job=%s victim=%s): %s",
+                    kind, job.get("victim_user_id"), exc,
+                )
             finally:
                 self._q.task_done()
 
