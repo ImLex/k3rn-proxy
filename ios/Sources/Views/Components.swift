@@ -121,6 +121,33 @@ struct ErrorBanner: View {
     }
 }
 
+/// Neutral, dismissable one-line notice — used for e.g. "Uploaded 3" toast
+/// after a multi-select action.
+struct InfoBanner: View {
+    let message: String
+    var onDismiss: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: Space.sm) {
+            Text(message)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let onDismiss {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.textFaint)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .background(Theme.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
 /// Small labelled key/value row used on detail screens.
 struct DetailRow<Value: View>: View {
     let label: String
