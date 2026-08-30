@@ -112,6 +112,16 @@ struct EmailSignInView: View {
                         KButton(label: "Set or reset password", variant: .secondary) {
                             showReset = true
                         }
+                        // Pushed, not a nested sheet: a sheet-on-a-sheet survives
+                        // RootView swapping the tree underneath it and ends up
+                        // covering SetPasswordView.
+                        NavigationLink(
+                            destination: PasswordResetRequestView(email: email)
+                                .environmentObject(session),
+                            isActive: $showReset
+                        ) { EmptyView() }
+                        .frame(width: 0, height: 0)
+                        .hidden()
                     }
                     .cardStyle()
 
@@ -127,12 +137,14 @@ struct EmailSignInView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showReset) {
-                PasswordResetRequestView(email: email)
-                    .environmentObject(session)
-            }
         }
         .navigationViewStyle(.stack)
+        // This sheet outlives its presenter: RootView tears LoginView down the
+        // moment auth succeeds, but the sheet stays up. Close it ourselves.
+        .onChange(of: session.state) { newState in
+            if case .signedOut = newState { return }
+            dismiss()
+        }
     }
 
     private func submit() {
@@ -153,7 +165,6 @@ struct EmailSignInView: View {
 /// whether an account is registered.
 struct PasswordResetRequestView: View {
     @EnvironmentObject private var session: SessionManager
-    @Environment(\.dismiss) private var dismiss
 
     @State var email: String
     @State private var code = ""
@@ -171,28 +182,20 @@ struct PasswordResetRequestView: View {
     }
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Space.lg) {
-                    if let error {
-                        ErrorBanner(message: error.message)
-                    }
-                    if sent { sentPhase } else { requestPhase }
-                    Spacer(minLength: Space.xxl)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.lg) {
+                if let error {
+                    ErrorBanner(message: error.message)
                 }
-                .padding()
+                if sent { sentPhase } else { requestPhase }
+                Spacer(minLength: Space.xxl)
             }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(sent ? "Enter your code" : "Set or reset password")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-            .onReceive(tick) { _ in if resendIn > 0 { resendIn -= 1 } }
+            .padding()
         }
-        .navigationViewStyle(.stack)
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle(sent ? "Enter your code" : "Set or reset password")
+        .navigationBarTitleDisplayMode(.inline)
+        .onReceive(tick) { _ in if resendIn > 0 { resendIn -= 1 } }
     }
 
     private var requestPhase: some View {
@@ -270,8 +273,8 @@ struct PasswordResetRequestView: View {
         Task {
             error = await session.redeemRecoveryCode(email: email, code: code)
             working = false
-            // On success SessionManager moves to .mustSetPassword and RootView
-            // swaps the whole tree, which tears this sheet down.
+            // On success SessionManager moves to .mustSetPassword; the enclosing
+            // sheet closes itself via its .onChange(of: session.state).
         }
     }
 }
