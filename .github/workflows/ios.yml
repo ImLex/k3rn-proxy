@@ -20,6 +20,9 @@ jobs:
       DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID || '1511533461650014350' }}
       DISCORD_OFFICER_ROLE_ID: ${{ vars.DISCORD_OFFICER_ROLE_ID || '1511533461675053086' }}
       DISCORD_K3RN_ROLE_ID: ${{ vars.DISCORD_K3RN_ROLE_ID || '1511533461666795578' }}
+      # On pull_request, github.sha is the ephemeral merge commit — the head sha is
+      # what a tester can actually match against the branch.
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +30,9 @@ jobs:
         run: brew install xcodegen
 
       - name: Write Secrets.xcconfig
+        id: cfg
         run: |
+          echo "sha=${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
           mkdir -p Config
           cat > Config/Secrets.xcconfig <<EOF
           SUPABASE_HOST = ${SUPABASE_HOST}
@@ -36,6 +41,7 @@ jobs:
           DISCORD_OFFICER_ROLE_ID = ${DISCORD_OFFICER_ROLE_ID}
           DISCORD_K3RN_ROLE_ID = ${DISCORD_K3RN_ROLE_ID}
           DEVELOPMENT_TEAM =
+          GIT_SHA = ${HEAD_SHA:0:7}
           EOF
 
       - name: Generate Xcode project
@@ -65,6 +71,8 @@ jobs:
       - name: Upload .ipa artifact
         uses: actions/upload-artifact@v4
         with:
-          name: K3RNIntel-unsigned-ipa
+          # github.ref_name is "<pr>/merge" on pull_request and slashes are
+          # rejected. The sha also matches what Settings shows on-device.
+          name: K3RNIntel-unsigned-ipa-${{ steps.cfg.outputs.sha }}
           path: ios/build/K3RNIntel-unsigned.ipa
           if-no-files-found: error

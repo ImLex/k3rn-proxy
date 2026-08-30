@@ -24,4 +24,12 @@ enum AppConfig {
 
     /// Custom scheme redirect registered in Info.plist + Supabase Auth.
     static let authRedirect = URL(string: "k3rnintel://auth-callback")!
+
+    /// Short commit the .ipa was built from. Builds are sideloaded by hand from
+    /// same-named CI artifacts, so without this there is no way to tell which
+    /// build is on a device. "local" when built outside CI.
+    static var buildRevision: String {
+        let v = Bundle.main.object(forInfoDictionaryKey: "GIT_SHA") as? String ?? ""
+        return (v.isEmpty || v.hasPrefix("$(")) ? "local" : v
+    }
 }
