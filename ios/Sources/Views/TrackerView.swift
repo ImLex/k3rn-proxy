@@ -36,7 +36,10 @@ struct TrackerView: View {
 
     var body: some View {
         NavigationView {
-            Group {
+            // The bar is a sibling of the list, not a `.safeAreaInset`: MainTabView
+            // already claims the bottom inset for KTabBar, and a nested inset there
+            // never gets laid out.
+            VStack(spacing: 0) {
                 if store.players.isEmpty {
                     ScrollView {
                         if let e = store.lastError { ErrorBanner(message: e).padding(.horizontal) }
@@ -50,12 +53,12 @@ struct TrackerView: View {
                 } else {
                     listContent
                 }
+                if editMode == .active { editActionBar }
             }
             .background(Theme.background)
             .navigationTitle("Targets")
             .toolbar { toolbarContent }
             .environment(\.editMode, $editMode)
-            .safeAreaInset(edge: .bottom) { if editMode == .active { editActionBar } }
             .sheet(isPresented: $showFilters) {
                 TargetFilterSheet(filters: $filters)
             }
@@ -202,7 +205,10 @@ struct TrackerView: View {
                 .foregroundStyle(actionColor(active: !selection.isEmpty, color: Theme.danger))
             }
         }
-        .background(Theme.surface.ignoresSafeArea(edges: .bottom))
+        .background(
+            Theme.surface
+                .overlay(Rectangle().fill(Theme.border).frame(height: 1), alignment: .top)
+        )
     }
 
     private func actionColor(active: Bool, color: Color) -> Color {
