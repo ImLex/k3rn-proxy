@@ -103,7 +103,8 @@ final class TrackerStore: ObservableObject {
             level: p.level,
             firewall: p.firewall,
             reputation: p.reputation,
-            notes: nil
+            notes: nil,
+            walletAddress: p.walletAddress
         )
         let player: Player
         if let existing = try await PlayerService.findExisting(

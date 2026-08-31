@@ -13,6 +13,9 @@ struct PlayerInput {
     var firewall: Int?
     var reputation: Int?
     var notes: String?
+    /// Only carried by a capture promotion; the manual form has no wallet field, so
+    /// leaving this nil omits the column and preserves whatever is already stored.
+    var walletAddress: String?
 
     /// Build from a validated form draft (call only after Validation passes).
     /// Applies guide §6 rules: trim, empty→nil, crew_rank only with crew,
@@ -238,7 +241,7 @@ enum PlayerService {
     }
 
     private static func writePayload(_ i: PlayerInput, actor: Actor) -> [String: AnyJSON] {
-        [
+        var payload: [String: AnyJSON] = [
             "username": .string(i.username),
             "player_id": i.playerID.map(AnyJSON.string) ?? .null,
             "crew": i.crew.map(AnyJSON.string) ?? .null,
@@ -250,6 +253,14 @@ enum PlayerService {
             "notes": i.notes.map(AnyJSON.string) ?? .null,
             "updated_by": .string(actor.discordID),
         ]
+        // A newer address replaces the stored one — wallets change. But a write that
+        // carries no address omits the key entirely rather than sending null, so
+        // promoting a capture taken before the wallet was opened can't erase it.
+        if let w = i.walletAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !w.isEmpty {
+            payload["wallet_address"] = .string(w)
+        }
+        return payload
     }
 
     /// Full player JSON snapshot for audit before/after (snake_case, matches DB).

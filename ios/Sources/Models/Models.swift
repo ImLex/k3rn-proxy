@@ -26,6 +26,7 @@ struct Player: Codable, Identifiable, Hashable, Sendable {
     var firewall: Int?
     var reputation: Int?
     var notes: String?
+    var walletAddress: String?
     var createdAt: String?
     var updatedAt: String?
     var updatedBy: String?
@@ -36,6 +37,7 @@ struct Player: Codable, Identifiable, Hashable, Sendable {
         case playerID = "player_id"
         case crewRank = "crew_rank"
         case currentIP = "current_ip"
+        case walletAddress = "wallet_address"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case updatedBy = "updated_by"
