@@ -25,6 +25,11 @@ enum AppConfig {
     /// Custom scheme redirect registered in Info.plist + Supabase Auth.
     static let authRedirect = URL(string: "k3rnintel://auth-callback")!
 
+    static func isAuthCallback(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == authRedirect.scheme
+            && url.host?.lowercased() == authRedirect.host
+    }
+
     /// Short commit the .ipa was built from. Builds are sideloaded by hand from
     /// same-named CI artifacts, so without this there is no way to tell which
     /// build is on a device. "local" when built outside CI.

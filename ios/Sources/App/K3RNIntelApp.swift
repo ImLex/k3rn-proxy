@@ -1,5 +1,4 @@
 import SwiftUI
-import Supabase
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -30,8 +29,9 @@ struct K3RNIntelApp: App {
                 .tint(Theme.accent)
                 .task { await session.bootstrap() }
                 .onOpenURL { url in
-                    // OAuth custom-scheme callback (k3rnintel://auth-callback).
-                    Task { try? await SupabaseManager.client.auth.session(from: url) }
+                    // Password-recovery deep link. Discord's OAuth resolves inside
+                    // ASWebAuthenticationSession and never reaches this callback.
+                    Task { await session.handleAuthCallback(url) }
                 }
         }
     }

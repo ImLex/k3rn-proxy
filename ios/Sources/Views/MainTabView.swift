@@ -74,6 +74,7 @@ struct SignInGate: View {
     let feature: String
     @EnvironmentObject private var session: SessionManager
     @State private var signingIn = false
+    @State private var showEmailSignIn = false
 
     var body: some View {
         VStack(spacing: 18) {
@@ -84,7 +85,7 @@ struct SignInGate: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center).padding(.horizontal, 28)
-            Text("Your tracked targets stay available offline. Discord sign-in only unlocks the shared crew database.")
+            Text("Your tracked targets stay available offline. Signing in only unlocks the shared crew database.")
                 .font(.system(size: 14)).foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center).padding(.horizontal, 28)
             Spacer()
@@ -102,10 +103,20 @@ struct SignInGate: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .disabled(signingIn)
-            .padding(.horizontal).padding(.bottom, 40)
+            .padding(.horizontal)
+
+            OrDivider().padding(.horizontal)
+
+            Button("Sign in with email") { showEmailSignIn = true }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.accent)
+                .padding(.bottom, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
+        .sheet(isPresented: $showEmailSignIn) {
+            EmailSignInView().environmentObject(session)
+        }
     }
 }
 
