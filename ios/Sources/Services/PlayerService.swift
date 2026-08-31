@@ -135,16 +135,33 @@ enum PlayerService {
     }
 
     /// Distinct non-empty crew tags for the form autocomplete.
+    ///
+    /// Paged past PostgREST's 1000-row cap: an unpaged select silently dropped every
+    /// crew whose players fell beyond the first 1000 rows, which is what made the app
+    /// disagree with the web dashboard.
     static func knownCrews() async throws -> [String] {
         struct Row: Decodable { let crew: String? }
-        let rows: [Row] = try await client.from("players")
-            .select("crew").is("deleted_at", value: nil).execute().value
+        let pageSize = 1000
         var seen = Set<String>()
         var out: [String] = []
-        for r in rows {
-            guard let c = r.crew?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !c.isEmpty else { continue }
-            if seen.insert(c.lowercased()).inserted { out.append(c) }
+        var from = 0
+        while true {
+            let page: [Row] = try await client.from("players")
+                .select("crew")
+                .is("deleted_at", value: nil)
+                .not("crew", operator: .is, value: "null")
+                .neq("crew", value: "")
+                .order("id", ascending: true)
+                .range(from: from, to: from + pageSize - 1)
+                .execute()
+                .value
+            for r in page {
+                guard let c = r.crew?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !c.isEmpty else { continue }
+                if seen.insert(c.lowercased()).inserted { out.append(c) }
+            }
+            if page.count < pageSize { break }
+            from += pageSize
         }
         return out.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }

@@ -13,14 +13,42 @@ struct CrewGroup: Identifiable {
 enum CrewService {
     private static var client: SupabaseClient { SupabaseManager.client }
 
-    /// Fetch all non-deleted players + the manual order rows, then build sorted
-    /// crew groups per guide §6 "Crews screen".
+    /// Crew-tagged, non-deleted players. PostgREST caps a plain select at 1000 rows,
+    /// so page until a short page comes back. Ordering by `id` keeps the pages from
+    /// overlapping or skipping rows between requests.
+    private static func fetchCrewTagged() async throws -> [Player] {
+        let pageSize = 1000
+        var all: [Player] = []
+        var from = 0
+        while true {
+            let page: [Player] = try await client.from("players")
+                .select()
+                .is("deleted_at", value: nil)
+                .not("crew", operator: .is, value: "null")
+                .neq("crew", value: "")
+                .order("id", ascending: true)
+                .range(from: from, to: from + pageSize - 1)
+                .execute()
+                .value
+            all.append(contentsOf: page)
+            if page.count < pageSize { break }
+            from += pageSize
+        }
+        return all
+    }
+
+    /// Fetch crew-tagged players + the manual order rows, then build sorted crew
+    /// groups per guide §6 "Crews screen". Mirrors KDBWeb's crews page so both
+    /// clients agree; see SHARED_DB.md.
     static func load() async throws -> (crews: [CrewGroup], unassigned: Int) {
-        async let playersReq: [Player] = client.from("players")
-            .select().is("deleted_at", value: nil).execute().value
+        async let totalReq = client.from("players")
+            .select("*", head: true, count: .exact)
+            .is("deleted_at", value: nil)
+            .execute().count
         async let orderReq: [CrewOrder] = client.from("crew_order")
             .select().execute().value
-        let players = try await playersReq
+        let players = try await fetchCrewTagged()
+        let total = try await totalReq
         let order = try await orderReq
 
         let positions = Dictionary(uniqueKeysWithValues:
@@ -29,14 +57,14 @@ enum CrewService {
             order.compactMap { o in o.memberOrder.map { (o.crewKey, $0) } })
 
         var groups: [String: (name: String, members: [Player])] = [:]
-        var unassigned = 0
         for p in players {
             guard let raw = p.crew?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !raw.isEmpty else { unassigned += 1; continue }
+                  !raw.isEmpty else { continue }
             let key = raw.lowercased()
             if groups[key] == nil { groups[key] = (raw, []) }
             groups[key]!.members.append(p)
         }
+        let unassigned = max(0, (total ?? players.count) - players.count)
 
         var result: [CrewGroup] = groups.map { key, value in
             let order = memberOrders[key] ?? []

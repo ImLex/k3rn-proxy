@@ -10,18 +10,11 @@ enum DashboardService {
         try await client.rpc("dashboard_stats").execute().value
     }
 
-    /// Distinct non-empty crew tags among non-deleted players.
+    /// Distinct non-empty crew tags among non-deleted players. Same deduplicated set
+    /// the crew autocomplete builds, so it shares that paged query rather than
+    /// repeating one that has to stay in sync with it.
     static func crewCount() async throws -> Int {
-        struct Row: Decodable { let crew: String? }
-        let rows: [Row] = try await client.from("players")
-            .select("crew").is("deleted_at", value: nil).execute().value
-        var keys = Set<String>()
-        for r in rows {
-            if let c = r.crew?.trimmingCharacters(in: .whitespacesAndNewlines), !c.isEmpty {
-                keys.insert(c.lowercased())
-            }
-        }
-        return keys.count
+        try await PlayerService.knownCrews().count
     }
 
     static func recentActivity(limit: Int = 6) async throws -> [AuditLog] {
