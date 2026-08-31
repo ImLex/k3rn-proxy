@@ -37,12 +37,16 @@ struct MainTabView: View {
     @State private var tab: AppTab = .dashboard
 
     var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                KTabBar(selection: $tab)
-            }
-            .task { if actor != nil { await nicknames.refreshIfStale() } }
+        // A real VStack, not `.safeAreaInset(edge: .bottom)`: on iOS 15 that inset
+        // does not reach inside a child NavigationView, so each tab's content area
+        // stayed full-height and anything it anchored to its own bottom edge was
+        // painted behind KTabBar (see the Targets edit bar).
+        VStack(spacing: 0) {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            KTabBar(selection: $tab)
+        }
+        .task { if actor != nil { await nicknames.refreshIfStale() } }
     }
 
     @ViewBuilder

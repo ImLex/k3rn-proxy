@@ -28,6 +28,22 @@ final class VirusModel: ObservableObject {
         loading = false
     }
 
+    /// Permanently drop every inactive deployment of one kind. Gated on the
+    /// server call so a failure leaves the rows on screen rather than splitting
+    /// local and server state.
+    func clearInactive(isSpam: Bool) async {
+        let rows = (isSpam ? spam : siphon).filter { !$0.active }
+        guard !rows.isEmpty else { return }
+        do {
+            try await VirusService.delete(ids: rows.map(\.id))
+            if isSpam { spam.removeAll { !$0.active } }
+            else { siphon.removeAll { !$0.active } }
+            errorMessage = nil
+        } catch {
+            errorMessage = AppError.map(error).errorDescription
+        }
+    }
+
     /// Active first, then by earned descending.
     private static func order(_ a: VirusDeployment, _ b: VirusDeployment) -> Bool {
         if a.active != b.active { return a.active && !b.active }
@@ -41,8 +57,21 @@ final class VirusModel: ObservableObject {
 struct VirusView: View {
     let actor: Actor?
     @StateObject private var model = VirusModel()
-    /// Section titles that are currently collapsed. Empty = both expanded (default).
-    @State private var collapsed: Set<String> = []
+    /// Section titles that are currently collapsed. Dead deployments start folded
+    /// away so live earnings are what you land on.
+    @State private var collapsed: Set<String> = [SectionKey.spamInactive, SectionKey.siphonInactive]
+    @State private var confirmClearSpam = false
+    @State private var confirmClearSiphon = false
+
+    private enum SectionKey {
+        static let spam = "Spam"
+        static let spamInactive = "Spam · inactive"
+        static let siphon = "Siphon"
+        static let siphonInactive = "Siphon · inactive"
+    }
+
+    private var inactiveSpam: [VirusDeployment] { model.spam.filter { !$0.active } }
+    private var inactiveSiphon: [VirusDeployment] { model.siphon.filter { !$0.active } }
 
     var body: some View {
         NavigationView {
@@ -60,8 +89,12 @@ struct VirusView: View {
                         )
                     } else {
                         summary
-                        section(title: "Spam", rows: model.spam)
-                        section(title: "Siphon", rows: model.siphon)
+                        section(title: SectionKey.spam, rows: model.spam.filter(\.active))
+                        section(title: SectionKey.spamInactive, rows: inactiveSpam,
+                                onClear: { confirmClearSpam = true })
+                        section(title: SectionKey.siphon, rows: model.siphon.filter(\.active))
+                        section(title: SectionKey.siphonInactive, rows: inactiveSiphon,
+                                onClear: { confirmClearSiphon = true })
                     }
                 }
                 .padding(Space.lg)
@@ -69,6 +102,22 @@ struct VirusView: View {
             .background(Theme.background)
             .navigationTitle("Virus")
             .refreshable { if actor != nil { await model.load() } }
+            .confirmationDialog(
+                "Delete \(inactiveSpam.count) inactive spam deployment\(inactiveSpam.count == 1 ? "" : "s")? This can't be undone.",
+                isPresented: $confirmClearSpam, titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    Task { await model.clearInactive(isSpam: true) }
+                }
+            }
+            .confirmationDialog(
+                "Delete \(inactiveSiphon.count) inactive siphon deployment\(inactiveSiphon.count == 1 ? "" : "s")? This can't be undone.",
+                isPresented: $confirmClearSiphon, titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    Task { await model.clearInactive(isSpam: false) }
+                }
+            }
         }
         .task {
             if actor == nil { model.setOffline() }
@@ -91,27 +140,40 @@ struct VirusView: View {
         .cardStyle(padding: Space.md)
     }
 
+    /// `onClear` renders a sibling Clear button. It must stay a sibling of the
+    /// collapse button — nesting a Button inside a Button fires both.
     @ViewBuilder
-    private func section(title: String, rows: [VirusDeployment]) -> some View {
+    private func section(title: String, rows: [VirusDeployment],
+                         onClear: (() -> Void)? = nil) -> some View {
         if !rows.isEmpty {
             let isCollapsed = collapsed.contains(title)
             VStack(alignment: .leading, spacing: Space.sm) {
-                Button {
-                    withAnimation {
-                        if isCollapsed { collapsed.remove(title) } else { collapsed.insert(title) }
+                HStack(spacing: Space.sm) {
+                    Button {
+                        withAnimation {
+                            if isCollapsed { collapsed.remove(title) } else { collapsed.insert(title) }
+                        }
+                    } label: {
+                        HStack {
+                            SectionHeader(title: "\(title) (\(rows.count))")
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(Theme.textFaint)
+                                .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                        }
+                        .contentShape(Rectangle())
                     }
-                } label: {
-                    HStack {
-                        SectionHeader(title: "\(title) (\(rows.count))")
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(Theme.textFaint)
-                            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                    .buttonStyle(.plain)
+                    if let onClear {
+                        Button(action: onClear) {
+                            Text("Clear")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(Theme.danger)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
                 if !isCollapsed {
                     ForEach(rows) { row($0) }
                 }
@@ -122,13 +184,11 @@ struct VirusView: View {
     private func row(_ d: VirusDeployment) -> some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack {
-                Text(d.ip ?? "—").font(.mono(14, weight: .semibold))
-                    .foregroundColor(Theme.textPrimary)
+                CopyableIP(ip: d.ip, font: .mono(14, weight: .semibold))
                 if let lvl = d.level {
                     TagPill(label: "Lv \(lvl)", color: Theme.info)
                 }
                 Spacer()
-                if !d.active { TagPill(label: "inactive", color: Theme.textFaint) }
             }
             HStack(spacing: Space.md) {
                 if d.isSpam {

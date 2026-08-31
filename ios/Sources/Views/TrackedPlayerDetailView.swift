@@ -278,32 +278,8 @@ struct TrackedPlayerDetailView: View {
         working = true
         defer { working = false }
         errorMessage = nil
-        do {
-            let input = PlayerInput(
-                username: p.username,
-                playerID: p.playerID,
-                crew: p.crew,
-                crewRank: (p.crew?.isEmpty == false) ? CrewRank.member.rawValue : nil,
-                currentIP: p.currentIP,
-                level: p.level,
-                firewall: p.firewall,
-                reputation: p.reputation,
-                notes: nil
-            )
-            let player: Player
-            if let existing = try await PlayerService.findExisting(playerID: p.playerID, username: p.username) {
-                player = try await PlayerService.update(id: existing.id, input: input, actor: actor)
-            } else {
-                player = try await PlayerService.create(input, actor: actor)
-            }
-            if !p.software.isEmpty {
-                try await SoftwareService.uploadInstalled(playerID: player.id, software: p.software)
-            }
-            try await CaptureService.markUploaded(id: p.id)
-            store.markUploaded(id: p.id)
-        } catch {
-            errorMessage = AppError.map(error).errorDescription
-        }
+        do { try await store.uploadOne(id: p.id, actor: actor) }
+        catch { errorMessage = AppError.map(error).errorDescription }
     }
 }
 
