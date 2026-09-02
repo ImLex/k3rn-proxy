@@ -63,7 +63,7 @@ logger = logging.getLogger("k3rn_capture")
 # Logged at startup so `_health.sh` can tell which copy of this file the Oracle
 # box is actually running — it is deployed by hand, and a stale copy silently
 # behaves like the bug it was meant to fix. Bump when capture behaviour changes.
-ADDON_REVISION = "2026-08-30"
+ADDON_REVISION = "2026-09-02"
 
 GAME_HOST = "api2.hackex.net"
 GAME_ORIGIN = "https://" + GAME_HOST
@@ -151,6 +151,11 @@ WG_MAP_REFRESH = int(os.environ.get("WG_MAP_REFRESH", "30"))
 # dropped silently. Log once per IP per interval so a mis-mapped session that
 # fires many game calls doesn't flood the journal.
 UNKNOWN_PEER_LOG_INTERVAL = int(os.environ.get("UNKNOWN_PEER_LOG_INTERVAL", "300"))
+# Minimum gap between two peer_heartbeats writes for the same actor. The game
+# hits several endpoints per second on the main screens, so a naive write-every-
+# response would flood PostgREST. 15s is far below the app's 60s Live threshold,
+# so the user still sees a fresh "Live" state within one game tick.
+HEARTBEAT_MIN_INTERVAL = int(os.environ.get("HEARTBEAT_MIN_INTERVAL", "15"))
 
 
 # --------------------------------------------------------------------------- #
@@ -375,6 +380,25 @@ class Supabase:
             prefer="resolution=merge-duplicates",
         )
 
+    def upsert_peer_heartbeat(self, owner_user_id: str,
+                              wg_ip: str | None, path: str | None):
+        """One row per member (owner_user_id PK). merge-duplicates so a busy
+        session just bumps last_seen_at + path_last in place. See migration
+        0028 — this is the app's real "the proxy is currently seeing your
+        game" signal, distinct from own_profile.captured_at which only
+        advances when the game hits /v1/user."""
+        self._req(
+            "POST",
+            "peer_heartbeats?on_conflict=owner_user_id",
+            body={
+                "owner_user_id": owner_user_id,
+                "last_seen_at": _now_iso(),
+                "wg_ip": wg_ip,
+                "path_last": path,
+            },
+            prefer="resolution=merge-duplicates",
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Parsing
@@ -541,6 +565,10 @@ class K3rnCapture:
         # wg_ip -> monotonic time it was last warned about as unmapped. Throttles
         # the unknown-peer log so a mis-mapped session doesn't flood the journal.
         self._unknown_ip_log: dict[str, float] = {}
+        # discord_id -> monotonic time of the last peer_heartbeats upsert. Debounces
+        # to at most one write per HEARTBEAT_MIN_INTERVAL so an active session with
+        # multiple in-flight game endpoints doesn't spam PostgREST.
+        self._last_heartbeat: dict[str, float] = {}
 
     # -- mitmproxy lifecycle ------------------------------------------------ #
     def running(self):
@@ -668,6 +696,15 @@ class K3rnCapture:
         # so the passive victim_ip capture runs too.
         if path == PROCESS_PATH and flow.metadata.get("k3rn_reveal_id"):
             self._handle_reveal_response(flow)
+        ip = self._client_ip(flow)
+        actor = self.wg_map.get(ip)
+        # Heartbeat on ANY GAME_HOST response from a mapped peer. The app renders
+        # this as Connection: Live/Idle/Lost — distinct from own_profile.captured_at,
+        # which only advances when the game hits /v1/user (member taps their own
+        # profile). Without this the app can't tell "tunnel dead" from "you
+        # haven't opened your profile in a while". Debounced per-actor.
+        if actor:
+            self._maybe_heartbeat(actor, ip, path)
         is_victim = path in VICTIM_PATHS
         virus_kind = VIRUS_PATHS.get(path)
         is_wallet = path == VICTIM_WALLET_PATH
@@ -678,8 +715,6 @@ class K3rnCapture:
         if not (is_victim or virus_kind or is_wallet or is_loot
                 or is_own_profile or is_own_wallet or is_process):
             return  # not one of the endpoints we track
-        ip = self._client_ip(flow)
-        actor = self.wg_map.get(ip)
         if not actor:  # unknown WG peer -> not one of our members
             self._note_unknown_peer(ip)
             return
@@ -744,6 +779,18 @@ class K3rnCapture:
         cc = flow.client_conn
         peer = getattr(cc, "peername", None) or getattr(cc, "address", None)
         return peer[0] if peer else None
+
+    def _maybe_heartbeat(self, actor, ip, path):
+        """Enqueue a peer_heartbeats upsert for a mapped peer, at most once per
+        HEARTBEAT_MIN_INTERVAL per actor. Called from response() on every
+        GAME_HOST flow — the game hits multiple endpoints per second on the
+        main screens, so writing every time would flood PostgREST."""
+        actor_id, _ = actor
+        now = time.monotonic()
+        if now - self._last_heartbeat.get(actor_id, 0.0) < HEARTBEAT_MIN_INTERVAL:
+            return
+        self._last_heartbeat[actor_id] = now
+        self._enqueue({"job": "heartbeat", "actor": actor, "ip": ip, "path": path})
 
     def _note_unknown_peer(self, ip):
         """A GAME_HOST flow from a WG IP that isn't in the map — almost always a
@@ -838,6 +885,8 @@ class K3rnCapture:
                     self._capture_wallet(job)
                 elif kind == "theft":
                     self._capture_theft(job)
+                elif kind == "heartbeat":
+                    self._capture_heartbeat(job)
                 elif kind == "own_profile":
                     self._capture_own_profile(job)
                 elif kind == "own_wallet":
@@ -1136,6 +1185,20 @@ class K3rnCapture:
             "source": "STEAL",
             "captured_at": _now_iso(),
         })
+
+    def _capture_heartbeat(self, job):
+        """peer_heartbeats upsert — see migration 0028. Best-effort: a member
+        without a profile row (never signed in on the app) has no owner_user_id,
+        so we silently skip until they do."""
+        actor_id, _ = job["actor"]
+        owner_user_id = self._resolve_user_id(actor_id)
+        if not owner_user_id:
+            return
+        self.db.upsert_peer_heartbeat(
+            owner_user_id=owner_user_id,
+            wg_ip=job.get("ip"),
+            path=job.get("path"),
+        )
 
     def _capture_own_profile(self, job):
         """GET /v1/user -> the member's own identity + software into own_profile.

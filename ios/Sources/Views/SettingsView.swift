@@ -21,6 +21,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     accountCard
+                    connectionCard
                     gameAccountCard
                     NavigationLink {
                         TunnelSetupView()
@@ -91,6 +92,113 @@ struct SettingsView: View {
     /// active account's level.
     private func syncLevel() {
         if let lvl = activeAccount?.level, lvl > 0 { userLevel = lvl }
+    }
+
+    // MARK: connection health
+
+    /// Derived from `peer_heartbeats.last_seen_at`. The addon stamps that row on
+    /// every mapped GAME_HOST response (see migration 0028), so a fresh
+    /// timestamp proves the phone → WG → mitmproxy → Supabase path is alive.
+    /// Distinct from `own_profile.captured_at`, which only advances when the
+    /// game hits /v1/user (member taps their own profile).
+    private enum ConnectionStatus {
+        case live(Date)     // heartbeat < 60s
+        case idle(Date)     // heartbeat < 10 min
+        case lost(Date?)    // older, or never stamped
+    }
+
+    private var connectionStatus: ConnectionStatus {
+        guard let raw = tracker.heartbeat?.lastSeenAt,
+              let d = Formatting.date(from: raw) else { return .lost(nil) }
+        let age = Date().timeIntervalSince(d)
+        if age < 60 { return .live(d) }
+        if age < 600 { return .idle(d) }
+        return .lost(d)
+    }
+
+    private var connectionCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                SectionHeader(title: "Connection")
+                Button {
+                    Task { await tracker.refresh() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(tracker.loading)
+            }
+            connectionStatusRow
+            connectionDetail
+        }
+        .cardStyle()
+    }
+
+    @ViewBuilder private var connectionStatusRow: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 10, height: 10)
+            Text(statusLabel)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+            Spacer()
+            Text(statusRelative)
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    @ViewBuilder private var connectionDetail: some View {
+        switch connectionStatus {
+        case .live:
+            Text("The proxy is seeing your HackEx traffic right now.")
+                .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+        case .idle:
+            Text("No game traffic in the last minute. Open HackEx to refresh.")
+                .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+        case .lost:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("The proxy isn't seeing your game. Try in order:")
+                    .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                lostStep("1. Toggle the WireGuard tunnel off, then back on.")
+                lostStep("2. Force-quit HackEx and reopen it. iOS caches DNS across launches, and the game may be using an IP outside the tunnel.")
+                lostStep("3. If it's still Lost after ~30 seconds, re-provision the tunnel below.")
+            }
+        }
+    }
+
+    private func lostStep(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var statusColor: Color {
+        switch connectionStatus {
+        case .live: return Theme.success
+        case .idle: return Theme.warning
+        case .lost: return Theme.danger
+        }
+    }
+
+    private var statusLabel: String {
+        switch connectionStatus {
+        case .live: return "Live"
+        case .idle: return "Idle"
+        case .lost: return "Lost"
+        }
+    }
+
+    private var statusRelative: String {
+        switch connectionStatus {
+        case .live(let d), .idle(let d): return Formatting.relativeTime(from: d)
+        case .lost(let d):
+            return d.map { Formatting.relativeTime(from: $0) } ?? "never"
+        }
     }
 
     // MARK: own in-game account (captured from the API)

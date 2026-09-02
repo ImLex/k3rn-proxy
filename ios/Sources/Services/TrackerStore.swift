@@ -11,6 +11,10 @@ final class TrackerStore: ObservableObject {
     /// The member's own captured game accounts, newest-first. A member with
     /// several HackEx logins has one entry per account (see migration 0011).
     @Published private(set) var ownAccounts: [OwnProfile] = []
+    /// Latest `peer_heartbeats` row — updated on refresh(). Feeds the Settings
+    /// Connection card so the user can tell "server is currently seeing my
+    /// game" apart from "captured 2 days ago" on an idle own_profile.
+    @Published private(set) var heartbeat: PeerHeartbeat?
     @Published var lastError: String?
     @Published private(set) var loading = false
     /// Non-nil while `uploadMany` is running so the Tracker view can render a
@@ -36,6 +40,7 @@ final class TrackerStore: ObservableObject {
         async let captures = CaptureService.fetchMine()
         async let events = CryptoEventService.fetchMineByPlayer()
         async let own = OwnProfileService.fetchAll()
+        async let hb = HeartbeatService.fetchMine()
         do {
             merge(try await captures)
             eventsByPlayer = try await events
@@ -47,6 +52,9 @@ final class TrackerStore: ObservableObject {
         // Own-account list is best-effort — a failure here shouldn't surface as a
         // tracker error or wipe a previously-loaded list.
         if let accounts = try? await own { ownAccounts = accounts }
+        // Heartbeat is best-effort too. A nil result (never stamped) is a valid
+        // state the Connection card renders as Lost.
+        heartbeat = (try? await hb) ?? heartbeat
     }
 
     func player(id: String) -> TrackedPlayer? { players.first { $0.id == id } }
@@ -146,6 +154,7 @@ final class TrackerStore: ObservableObject {
     func clear() {
         players = []
         eventsByPlayer = [:]
+        heartbeat = nil
         try? FileManager.default.removeItem(at: fileURL)
         try? FileManager.default.removeItem(at: eventsURL)
     }
